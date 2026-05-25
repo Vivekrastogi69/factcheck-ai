@@ -10,7 +10,11 @@ import requests
 import streamlit as st
 
 # ============================================
+<<<<<<< HEAD
 # GROQ API CONFIGURATION - ONLY GROQ
+=======
+# API CONFIGURATION - GROQ API
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 # ============================================
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -26,7 +30,11 @@ MIN_CLAIM_LENGTH = 25
 MAX_CLAIM_LENGTH = 280
 
 ANALYSIS_MODE_LABELS = {
+<<<<<<< HEAD
     "groq_web_search": "🌐 Live web fact-check (Groq + Serper)",
+=======
+    "groq_live_search": "🌐 Live web fact-check (Groq + Serper)",
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     "groq_model_only": "🤖 Model-only analysis (Groq)",
     "local_fallback": "📝 Local fallback (No AI)",
 }
@@ -75,6 +83,10 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 }
 .hero h1 { color: #fff; font-size: 2.3rem; font-weight: 700; margin: 0; }
 .hero p  { color: #bfd4f3; font-size: 0.95rem; margin: 0.65rem 0 0; }
+<<<<<<< HEAD
+=======
+
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 .claim-card {
     background: #1e2130;
     border-radius: 14px;
@@ -131,6 +143,10 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     padding: 0.75rem 2rem !important;
     font-size: 1rem !important;
 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 .sidebar-box {
     background: #1e2130;
     border-radius: 12px;
@@ -158,7 +174,11 @@ st.markdown(
     """
 <div style="text-align:center;margin-bottom:1.5rem;">
   <span class="step-pill">📄 1. Upload PDF</span>
+<<<<<<< HEAD
   <span class="step-pill">⚡ 2. Groq AI</span>
+=======
+  <span class="step-pill">🔑 2. API Keys Ready</span>
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
   <span class="step-pill">🌐 3. Verify Claims</span>
   <span class="step-pill">📊 4. Report</span>
 </div>
@@ -171,7 +191,10 @@ st.markdown(
 # ============================================
 
 def get_groq_key() -> str:
+<<<<<<< HEAD
     """Get Groq API key from secrets"""
+=======
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     try:
         if "GROQ_API_KEY" in st.secrets:
             return str(st.secrets["GROQ_API_KEY"]).strip()
@@ -180,7 +203,10 @@ def get_groq_key() -> str:
     return os.getenv("GROQ_API_KEY", "").strip()
 
 def get_serper_key() -> str:
+<<<<<<< HEAD
     """Get Serper API key from secrets"""
+=======
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     try:
         if "SERPER_API_KEY" in st.secrets:
             return str(st.secrets["SERPER_API_KEY"]).strip()
@@ -194,6 +220,7 @@ def get_serper_key() -> str:
 
 def serper_web_search(query: str, api_key: str) -> str:
     if not api_key:
+<<<<<<< HEAD
         return ""
     
     url = "https://google.serper.dev/search"
@@ -229,6 +256,67 @@ def groq_generate(api_key: str, prompt: str, temperature: float = 0.0) -> str:
     if not content:
         raise RuntimeError("Empty response from Groq API")
     return content
+=======
+        return "Serper API key not configured."
+    
+    url = "https://google.serper.dev/search"
+    headers = {
+        "X-API-KEY": api_key,
+        "Content-Type": "application/json"
+    }
+    payload = {"q": query, "num": 3}
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        snippets = []
+        for result in data.get("organic", [])[:3]:
+            snippet = result.get("snippet", "")
+            if snippet:
+                snippets.append(snippet)
+        
+        if snippets:
+            return "\n\n".join(snippets)
+        return "No search results found."
+    except Exception as e:
+        return f"Search error: {str(e)}"
+
+# ============================================
+# GROQ API FUNCTIONS
+# ============================================
+
+def groq_generate(api_key: str, prompt: str, temperature: float = 0.0) -> str:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    
+    body = {
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "max_tokens": 4096,
+    }
+    
+    try:
+        response = requests.post(GROQ_API_URL, headers=headers, json=body, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            raise RuntimeError("Empty response from Groq API")
+        return content
+    except requests.HTTPError as exc:
+        if exc.response is not None:
+            error_data = exc.response.json()
+            error_msg = error_data.get("error", {}).get("message", str(exc))
+            raise RuntimeError(f"Groq API error: {error_msg}")
+        raise RuntimeError(f"Groq API error: {exc}")
+    except Exception as exc:
+        raise RuntimeError(f"Groq request failed: {exc}")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 
 def parse_json_text(text: str):
     cleaned = text.strip()
@@ -240,7 +328,11 @@ def parse_json_text(text: str):
     json_match2 = re.search(r'(\[.*\]|\{.*\})', cleaned, re.DOTALL)
     if json_match2:
         return json.loads(json_match2.group(1))
+<<<<<<< HEAD
     raise ValueError("Could not parse JSON")
+=======
+    raise ValueError(f"Could not parse JSON")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 
 def extract_text_from_pdf(uploaded_file) -> str:
     uploaded_file.seek(0)
@@ -250,7 +342,11 @@ def extract_text_from_pdf(uploaded_file) -> str:
 
 def split_sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?])\s+|\n+", text)
+<<<<<<< HEAD
     return [p.strip() for p in parts if p and p.strip()]
+=======
+    return [part.strip() for part in parts if part and part.strip()]
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 
 def infer_claim_category(text: str) -> str:
     lowered = text.lower()
@@ -276,13 +372,29 @@ def looks_like_claim(text: str) -> bool:
 
 def extract_claims_locally(text: str) -> list[dict]:
     claims = []
+<<<<<<< HEAD
     seen = set()
+=======
+    seen_claims = set()
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     for sentence in split_sentences(text):
         candidate = " ".join(sentence.split())
         if not looks_like_claim(candidate) or candidate.casefold() in seen:
             continue
+<<<<<<< HEAD
         seen.add(candidate.casefold())
         claims.append({"id": len(claims)+1, "claim": candidate, "category": infer_claim_category(candidate)})
+=======
+        claim_key = candidate.casefold()
+        if claim_key in seen_claims:
+            continue
+        seen_claims.add(claim_key)
+        claims.append({
+            "id": len(claims) + 1,
+            "claim": candidate,
+            "category": infer_claim_category(candidate),
+        })
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
         if len(claims) >= MAX_CLAIMS:
             break
     return claims
@@ -294,6 +406,7 @@ def normalize_verdict(value) -> str:
     return verdict if verdict in VALID_VERDICTS else "Unverified"
 
 def normalize_confidence(value) -> str:
+<<<<<<< HEAD
     conf = str(value or "Low").strip().title()
     return conf if conf in VALID_CONFIDENCE else "Low"
 
@@ -302,15 +415,33 @@ def normalize_analysis_results(payload) -> list[dict]:
         raise ValueError("Expected JSON array")
     results = []
     seen = set()
+=======
+    confidence = str(value or "Low").strip().title()
+    return confidence if confidence in VALID_CONFIDENCE else "Low"
+
+def normalize_analysis_results(payload) -> list[dict]:
+    if not isinstance(payload, list):
+        raise ValueError("Analysis did not return a JSON array.")
+    results = []
+    seen_claims = set()
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     for item in payload:
         if not isinstance(item, dict):
             continue
         claim_text = str(item.get("claim", "")).strip()
+<<<<<<< HEAD
         if not claim_text or claim_text.casefold() in seen:
             continue
         seen.add(claim_text.casefold())
         results.append({
             "id": len(results)+1,
+=======
+        if not claim_text or claim_text.casefold() in seen_claims:
+            continue
+        seen_claims.add(claim_text.casefold())
+        results.append({
+            "id": len(results) + 1,
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
             "claim": claim_text,
             "category": str(item.get("category", "other")).strip().lower(),
             "verdict": normalize_verdict(item.get("verdict")),
@@ -322,14 +453,29 @@ def normalize_analysis_results(payload) -> list[dict]:
         if len(results) >= MAX_CLAIMS:
             break
     if not results:
+<<<<<<< HEAD
         raise ValueError("No valid claims found")
+=======
+        raise ValueError("No claim analysis results were returned.")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     return results
 
 def build_unverified_results(claims, reason):
     return [{
+<<<<<<< HEAD
         "id": c["id"], "claim": c["claim"], "category": c["category"],
         "verdict": "Unverified", "confidence": "Low", "explanation": reason,
         "correct_fact": None, "sources": []
+=======
+        "id": c["id"],
+        "claim": c["claim"],
+        "category": c["category"],
+        "verdict": "Unverified",
+        "confidence": "Low",
+        "explanation": reason,
+        "correct_fact": None,
+        "sources": [],
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     } for c in claims]
 
 # ============================================
@@ -339,11 +485,16 @@ def build_unverified_results(claims, reason):
 def analyze_with_groq(groq_key: str, serper_key: str, text: str) -> list[dict]:
     local_claims = extract_claims_locally(text)
     if not local_claims:
+<<<<<<< HEAD
         raise ValueError("No claims found")
+=======
+        raise ValueError("No claims found in document")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     
     results = []
     for claim_item in local_claims[:MAX_CLAIMS]:
         claim_text = claim_item["claim"]
+<<<<<<< HEAD
         search_results = serper_web_search(claim_text, serper_key) if serper_key else ""
         
         prompt = f"""You are a fact-checking expert.
@@ -375,6 +526,51 @@ Respond with ONLY JSON (no other text):
     
     return normalize_analysis_results(results)
 
+=======
+        
+        # Search web if Serper key is available
+        search_results = ""
+        if serper_key:
+            search_results = serper_web_search(claim_text, serper_key)
+        
+        prompt = f"""You are a fact-checking expert.
+
+Claim: "{claim_text}"
+
+{'Search Results:' + search_results if search_results else 'No search results available. Use your knowledge.'}
+
+Based on the above, respond with JSON:
+{{
+    "claim": "{claim_text}",
+    "category": "{claim_item['category']}",
+    "verdict": "Verified/Inaccurate/False/Unverified",
+    "confidence": "High/Medium/Low",
+    "explanation": "Brief explanation",
+    "correct_fact": "Correct fact if wrong, else null",
+    "sources": ["source1 or null"]
+}}"""
+        
+        try:
+            result_text = groq_generate(groq_key, prompt, temperature=0.0)
+            parsed = parse_json_text(result_text)
+            if isinstance(parsed, dict):
+                results.append(parsed)
+            elif isinstance(parsed, list) and len(parsed) > 0:
+                results.append(parsed[0])
+        except Exception as e:
+            results.append({
+                "claim": claim_text,
+                "category": claim_item["category"],
+                "verdict": "Unverified",
+                "confidence": "Low",
+                "explanation": f"Verification failed: {str(e)[:100]}",
+                "correct_fact": None,
+                "sources": []
+            })
+    
+    return normalize_analysis_results(results)
+
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 # ============================================
 # UI FUNCTIONS
 # ============================================
@@ -386,14 +582,30 @@ def badge_html(verdict: str) -> str:
 
 def render_claim_card(result: dict) -> None:
     verdict = result.get("verdict", "Unverified")
+<<<<<<< HEAD
     card_cls = {"Verified": "verified", "Inaccurate": "inaccurate", "False": "false", "Unverified": "unverified"}.get(verdict, "unverified")
+=======
+    card_cls = {
+        "Verified": "verified",
+        "Inaccurate": "inaccurate",
+        "False": "false",
+        "Unverified": "unverified",
+    }.get(verdict, "unverified")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     
     claim_text = html.escape(str(result.get("claim", "")).strip())
     explanation = html.escape(str(result.get("explanation", "")).strip())
     confidence = str(result.get("confidence", "?")).strip().title()
     category = html.escape(str(result.get("category", "")).strip().upper())
     
+<<<<<<< HEAD
     correct_html = f"<p class='correct-fact'>✅ Correct fact: {html.escape(str(result['correct_fact']))}</p>" if result.get("correct_fact") else ""
+=======
+    correct_html = ""
+    if result.get("correct_fact"):
+        correct_html = f"<p class='correct-fact'>✅ Correct fact: {html.escape(str(result['correct_fact']))}</p>"
+    
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     sources_html = ""
     if result.get("sources"):
         source_tags = [f"<span class='source-link'>{html.escape(str(s))}</span>" for s in result["sources"][:3]]
@@ -418,26 +630,51 @@ def render_claim_card(result: dict) -> None:
 
 with st.sidebar:
     st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
+<<<<<<< HEAD
     st.markdown("### ⚡ Groq API")
+=======
+    st.markdown("### ⚡ Groq API Configuration")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     
     groq_key = get_groq_key()
     serper_key = get_serper_key()
     
     if groq_key:
+<<<<<<< HEAD
         st.success(f"✅ Groq API key configured\nModel: {GROQ_MODEL}")
     else:
         st.error("❌ Groq API key missing - Add to secrets")
+=======
+        st.success("✅ Groq API key configured")
+        st.caption(f"Model: {GROQ_MODEL}")
+    else:
+        st.error("❌ Groq API key missing")
+        st.caption("Add GROQ_API_KEY to secrets")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     
     if serper_key:
         st.success("✅ Serper API key configured (Web Search)")
     else:
+<<<<<<< HEAD
         st.info("ℹ️ Serper key optional - add for web search")
+=======
+        st.info("ℹ️ Serper key not set - using Groq only")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
     st.markdown("### 📊 Verdict Guide")
+<<<<<<< HEAD
     st.markdown("✅ **Verified** - Matches evidence\n⚠️ **Inaccurate** - Outdated/wrong\n❌ **False** - Contradicted\n❓ **Unverified** - Can't verify")
+=======
+    st.markdown("""
+    - ✅ **Verified** - Matches evidence
+    - ⚠️ **Inaccurate** - Outdated/wrong numbers
+    - ❌ **False** - Contradicted
+    - ❓ **Unverified** - Can't verify
+    """)
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     st.markdown('</div>', unsafe_allow_html=True)
 
 col_upload, col_info = st.columns([2, 1])
@@ -452,7 +689,15 @@ with col_info:
       <div class="stat-label">Groq LPU - Ultra Fast</div>
     </div>
     <div style="background:#1e2130;border-radius:10px;padding:1rem;border:1px solid #2d3748;font-size:0.82rem;">
+<<<<<<< HEAD
       <b>How it works</b><br><br>1. Upload PDF<br>2. Groq AI extracts claims<br>3. Web search verification<br>4. Get verdict report
+=======
+      <b>How it works</b><br><br>
+      1. Upload PDF with claims<br>
+      2. Groq AI extracts facts<br>
+      3. Web search verification<br>
+      4. Get verdict report
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     </div>
     """, unsafe_allow_html=True)
 
@@ -465,7 +710,11 @@ if run:
     
     groq_key = get_groq_key()
     if not groq_key:
+<<<<<<< HEAD
         st.error("❌ Groq API key not configured! Add GROQ_API_KEY to secrets.")
+=======
+        st.error("❌ Groq API key not configured!")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
         st.stop()
     
     with st.spinner("📄 Extracting text from PDF..."):
@@ -481,31 +730,52 @@ if run:
     
     st.success(f"✅ Extracted {len(pdf_text):,} characters")
     
+<<<<<<< HEAD
     with st.spinner("⚡ Analyzing with Groq (ultra-fast)..."):
         try:
             results = analyze_with_groq(groq_key, serper_key, pdf_text)
             mode = "groq_web_search" if serper_key else "groq_model_only"
+=======
+    with st.spinner("⚡ Analyzing with Groq (this is fast!)..."):
+        try:
+            results = analyze_with_groq(groq_key, serper_key, pdf_text)
+            analysis_mode = "groq_live_search" if serper_key else "groq_model_only"
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
         except Exception as e:
             local_claims = extract_claims_locally(pdf_text)
             if not local_claims:
                 st.error(f"Analysis failed: {e}")
                 st.stop()
             results = build_unverified_results(local_claims, f"AI unavailable: {str(e)[:100]}")
+<<<<<<< HEAD
             mode = "local_fallback"
+=======
+            analysis_mode = "local_fallback"
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     
     st.success(f"✅ Analysis complete for {len(results)} claims!")
     
     st.markdown("---")
     st.markdown("## 📊 Analysis Report")
+<<<<<<< HEAD
     st.caption(f"Mode: {ANALYSIS_MODE_LABELS.get(mode, mode)} | Model: {GROQ_MODEL}")
     st.markdown(f"*Generated: {datetime.now().strftime('%B %d, %Y at %H:%M')}*")
+=======
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
     
     counts = {"Verified": 0, "Inaccurate": 0, "False": 0, "Unverified": 0}
     for r in results:
         counts[r.get("verdict", "Unverified")] += 1
     
     c1, c2, c3, c4 = st.columns(4)
+<<<<<<< HEAD
     for col, (label, color, icon) in zip([c1, c2, c3, c4], [("Verified", "#10b981", "✅"), ("Inaccurate", "#f59e0b", "⚠️"), ("False", "#ef4444", "❌"), ("Unverified", "#6366f1", "❓")]):
+=======
+    for col, (label, color, icon) in zip([c1, c2, c3, c4], [
+        ("Verified", "#10b981", "✅"), ("Inaccurate", "#f59e0b", "⚠️"),
+        ("False", "#ef4444", "❌"), ("Unverified", "#6366f1", "❓"),
+    ]):
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
         with col:
             st.markdown(f"<div class='stat-box'><div class='stat-num' style='color:{color};'>{icon} {counts[label]}</div><div class='stat-label'>{label}</div></div>", unsafe_allow_html=True)
     
@@ -513,5 +783,17 @@ if run:
     for item in results:
         render_claim_card(item)
     
+<<<<<<< HEAD
     report_json = json.dumps({"generated_at": datetime.now().isoformat(), "model": GROQ_MODEL, "mode": mode, "summary": counts, "results": results}, indent=2)
     st.download_button("⬇️ Download JSON Report", data=report_json, file_name="factcheck_report.json", mime="application/json")
+=======
+    report_json = json.dumps({
+        "generated_at": datetime.now().isoformat(),
+        "model": GROQ_MODEL,
+        "mode": analysis_mode,
+        "summary": counts,
+        "results": results,
+    }, indent=2)
+    
+    st.download_button("⬇️ Download JSON Report", data=report_json, file_name="factcheck_report.json", mime="application/json")
+>>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
