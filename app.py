@@ -1,799 +1,679 @@
-import html
-import json
-import os
-import re
-from datetime import datetime
-from typing import Any
-
+import streamlit as st
 import pdfplumber
 import requests
-import streamlit as st
+import json
+import re
+import os
+import time
+from datetime import datetime
+import html
 
 # ============================================
-<<<<<<< HEAD
-# GROQ API CONFIGURATION - ONLY GROQ
-=======
-# API CONFIGURATION - GROQ API
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
+# CONFIGURATION
 # ============================================
-
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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")
+SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "3d998a7f713348b7808231646724142b30c8df56")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
-
-# Document limits
-DOCUMENT_CHAR_LIMIT = 12000
-MAX_CLAIMS = 6
-MAX_SOURCES = 3
-VALID_VERDICTS = {"Verified", "Inaccurate", "False", "Unverified"}
-VALID_CONFIDENCE = {"High", "Medium", "Low"}
-MIN_CLAIM_LENGTH = 25
-MAX_CLAIM_LENGTH = 280
-
-ANALYSIS_MODE_LABELS = {
-<<<<<<< HEAD
-    "groq_web_search": "🌐 Live web fact-check (Groq + Serper)",
-=======
-    "groq_live_search": "🌐 Live web fact-check (Groq + Serper)",
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    "groq_model_only": "🤖 Model-only analysis (Groq)",
-    "local_fallback": "📝 Local fallback (No AI)",
-}
-
-ANALYSIS_SCHEMA = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "claim": {"type": "string"},
-            "category": {"type": "string"},
-            "verdict": {"type": "string"},
-            "confidence": {"type": "string"},
-            "explanation": {"type": "string"},
-            "correct_fact": {"type": ["string", "null"]},
-            "sources": {"type": "array", "items": {"type": "string"}},
-        },
-        "required": ["claim", "category", "verdict", "confidence", "explanation", "correct_fact", "sources"],
-    },
-}
 
 # ============================================
 # PAGE CONFIGURATION
 # ============================================
-
 st.set_page_config(
-    page_title="FactCheck AI - Groq Edition",
-    page_icon="⚡",
+    page_title="FactCheck AI — Truth Layer",
+    page_icon="✅",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-st.markdown(
-    """
+# ============================================
+# CSS STYLING
+# ============================================
+st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.main { background: #0f1117; }
-.hero {
-    background: linear-gradient(135deg, #0a0a2a 0%, #1a1a4a 45%, #2a2a5a 100%);
-    border-radius: 20px;
-    padding: 2.5rem 2rem;
-    margin-bottom: 1.8rem;
-    border: 1px solid #4a4a8a;
-    text-align: center;
-}
-.hero h1 { color: #fff; font-size: 2.3rem; font-weight: 700; margin: 0; }
-.hero p  { color: #bfd4f3; font-size: 0.95rem; margin: 0.65rem 0 0; }
-<<<<<<< HEAD
-=======
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+* { font-family: 'Inter', sans-serif; }
+.stApp { background: linear-gradient(135deg, #0f0c29, #1a1a4a, #24243e); }
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
 
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-.claim-card {
-    background: #1e2130;
-    border-radius: 14px;
-    padding: 1.25rem 1.45rem;
-    margin-bottom: 1rem;
-    border-left: 4px solid #334155;
+.hero {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(20px);
+    border-radius: 32px;
+    padding: 2.5rem;
+    margin-bottom: 2rem;
+    text-align: center;
+    border: 1px solid rgba(99,102,241,0.3);
 }
-.claim-card.verified   { border-left-color: #10b981; background: #0d2b1f; }
-.claim-card.inaccurate { border-left-color: #f59e0b; background: #302109; }
-.claim-card.false      { border-left-color: #ef4444; background: #310d13; }
-.claim-card.unverified { border-left-color: #6366f1; background: #1a1b2e; }
-.badge {
-    display: inline-block;
-    padding: 3px 12px;
+.hero h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #fff, #a5b4fc, #6366f1);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0 0 0.5rem 0;
+}
+.steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin: 2rem 0;
+}
+.step-card {
+    text-align: center;
+    padding: 1rem;
+    background: rgba(255,255,255,0.03);
     border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    border: 1px solid rgba(99,102,241,0.2);
+    color: #94a3b8;
 }
-.badge-verified   { background: #065f46; color: #6ee7b7; }
-.badge-inaccurate { background: #78350f; color: #fcd34d; }
-.badge-false      { background: #7f1d1d; color: #fca5a5; }
-.badge-unverified { background: #312e81; color: #a5b4fc; }
-.claim-text   { color: #e2e8f0; font-size: 0.95rem; margin: 0.4rem 0; }
-.verdict-text { color: #b0bdd2; font-size: 0.86rem; margin-top: 0.5rem; }
-.correct-fact { color: #34d399; font-size: 0.85rem; font-weight: 500; margin-top: 0.35rem; }
-.source-link  { color: #93c5fd; font-size: 0.78rem; }
-.stat-box {
-    background: #1e2130;
-    border-radius: 14px;
+.step-number {
+    width: 45px; height: 45px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-radius: 25px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 0.8rem;
+    font-weight: bold; font-size: 1.2rem; color: white;
+}
+.claim-card {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 1.2rem;
+    margin-bottom: 1rem;
+    border-left: 4px solid;
+    transition: transform 0.2s;
+}
+.claim-card:hover { transform: translateX(5px); }
+.verified { border-left-color: #10b981; }
+.inaccurate { border-left-color: #f59e0b; }
+.false { border-left-color: #ef4444; }
+.unverified { border-left-color: #6366f1; }
+.stat-card {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
+    border-radius: 20px;
     padding: 1rem;
     text-align: center;
-    border: 1px solid #2d3748;
+    color: #e2e8f0;
 }
-.stat-num  { font-size: 2rem; font-weight: 700; }
-.stat-label{ color: #94a3b8; font-size: 0.8rem; margin-top: 2px; }
-.step-pill {
+.stat-number { font-size: 2.2rem; font-weight: 800; }
+.badge {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.85rem;
+    border-radius: 40px;
+    font-size: 0.72rem; font-weight: 600;
+}
+.bg-verified { background: rgba(16,185,129,0.2); color: #34d399; }
+.bg-inaccurate { background: rgba(245,158,11,0.2); color: #fbbf24; }
+.bg-false { background: rgba(239,68,68,0.2); color: #f87171; }
+.bg-unverified { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+.correct-fact {
+    font-size: 0.82rem; color: #34d399;
+    background: rgba(16,185,129,0.1);
+    padding: 0.4rem 0.8rem;
+    border-radius: 12px; margin-top: 0.6rem;
+}
+.source-link {
+    font-size: 0.75rem; color: #a5b4fc;
+    background: rgba(99,102,241,0.1);
+    padding: 0.3rem 0.7rem;
+    border-radius: 10px; margin-top: 0.4rem;
     display: inline-block;
-    background: #1e2130;
-    border: 1px solid #334155;
-    border-radius: 999px;
-    padding: 4px 14px;
-    font-size: 0.78rem;
-    color: #94a3b8;
-    margin: 3px;
 }
 .stButton > button {
     background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
-    color: #fff !important;
+    color: white !important;
     border: none !important;
-    border-radius: 10px !important;
+    border-radius: 40px !important;
     font-weight: 600 !important;
-    padding: 0.75rem 2rem !important;
+    padding: 0.7rem 2rem !important;
+    width: 100% !important;
     font-size: 1rem !important;
 }
-<<<<<<< HEAD
-=======
-
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-.sidebar-box {
-    background: #1e2130;
-    border-radius: 12px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    border: 1px solid #2d3748;
+[data-testid="stSidebar"] {
+    background: rgba(0,0,0,0.5) !important;
+    backdrop-filter: blur(20px) !important;
+}
+.stProgress > div > div { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+.search-snippet {
+    font-size: 0.75rem; color: #64748b;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px; padding: 0.4rem 0.7rem;
+    margin-top: 0.4rem; font-style: italic;
 }
 </style>
-""",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-<div class="hero">
-  <h1>⚡ FactCheck AI — Groq Edition</h1>
-  <p>Upload a PDF, cross-check factual claims against the live web, and get a clean verdict report.</p>
-  <p style="font-size:0.85rem;margin-top:0.75rem;">✨ Powered by Groq LPU (Ultra-Fast Inference)</p>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-<div style="text-align:center;margin-bottom:1.5rem;">
-  <span class="step-pill">📄 1. Upload PDF</span>
-<<<<<<< HEAD
-  <span class="step-pill">⚡ 2. Groq AI</span>
-=======
-  <span class="step-pill">🔑 2. API Keys Ready</span>
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-  <span class="step-pill">🌐 3. Verify Claims</span>
-  <span class="step-pill">📊 4. Report</span>
-</div>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
 # ============================================
-# API KEY FUNCTIONS
+# SIDEBAR
+# ============================================
+with st.sidebar:
+    st.markdown("## 🎯 **System Status**")
+    st.markdown("---")
+    groq_ok = bool(GROQ_API_KEY)
+    serper_ok = bool(SERPER_API_KEY)
+    st.success("✅ **Groq AI** — Active\n`llama-3.3-70b-versatile`") if groq_ok else st.error("❌ Groq API key missing")
+    st.success("✅ **Serper API** — Active\n🔍 Live Google Search") if serper_ok else st.error("❌ Serper API key missing")
+    st.markdown("---")
+    st.markdown("### 📋 **Verdict Guide**")
+    st.markdown("✅ **Verified** — Matches current evidence")
+    st.markdown("⚠️ **Inaccurate** — Outdated or numbers off")
+    st.markdown("❌ **False** — Completely incorrect / fabricated")
+    st.markdown("❓ **Unverified** — Cannot find reliable evidence")
+    st.markdown("---")
+    st.markdown("### ⚙️ **Settings**")
+    max_claims = st.slider("Max Claims to Check", 5, 20, 12)
+    show_snippets = st.checkbox("Show Web Search Snippets", value=False)
+    st.markdown("---")
+    st.markdown("### 🎯 **Features**")
+    st.markdown("- PDF Upload & Text Extraction")
+    st.markdown("- AI-Powered Claim Identification")
+    st.markdown("- Live Web Search (Google via Serper)")
+    st.markdown("- Verdict with Correct Facts")
+    st.markdown("- Source URLs in report")
+    st.markdown("- JSON Report Download")
+
+# ============================================
+# API FUNCTIONS
 # ============================================
 
-def get_groq_key() -> str:
-<<<<<<< HEAD
-    """Get Groq API key from secrets"""
-=======
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
+def serper_search(query, num_results=5):
+    """Search Google using Serper API, return snippets + source URLs"""
     try:
-        if "GROQ_API_KEY" in st.secrets:
-            return str(st.secrets["GROQ_API_KEY"]).strip()
-    except Exception:
-        pass
-    return os.getenv("GROQ_API_KEY", "").strip()
-
-def get_serper_key() -> str:
-<<<<<<< HEAD
-    """Get Serper API key from secrets"""
-=======
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    try:
-        if "SERPER_API_KEY" in st.secrets:
-            return str(st.secrets["SERPER_API_KEY"]).strip()
-    except Exception:
-        pass
-    return os.getenv("SERPER_API_KEY", "").strip()
-
-# ============================================
-# SERPER WEB SEARCH
-# ============================================
-
-def serper_web_search(query: str, api_key: str) -> str:
-    if not api_key:
-<<<<<<< HEAD
-        return ""
-    
-    url = "https://google.serper.dev/search"
-    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-    payload = {"q": query, "num": 3}
-    
-    try:
+        url = "https://google.serper.dev/search"
+        headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
+        payload = {"q": query, "num": num_results, "gl": "us", "hl": "en"}
         response = requests.post(url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
         data = response.json()
-        snippets = [r.get("snippet", "") for r in data.get("organic", [])[:3] if r.get("snippet")]
-        return "\n\n".join(snippets) if snippets else ""
-    except Exception:
-        return ""
 
-# ============================================
-# GROQ API FUNCTIONS
-# ============================================
-
-def groq_generate(api_key: str, prompt: str, temperature: float = 0.0) -> str:
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    body = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
-        "max_tokens": 4096,
-    }
-    
-    response = requests.post(GROQ_API_URL, headers=headers, json=body, timeout=60)
-    response.raise_for_status()
-    data = response.json()
-    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    if not content:
-        raise RuntimeError("Empty response from Groq API")
-    return content
-=======
-        return "Serper API key not configured."
-    
-    url = "https://google.serper.dev/search"
-    headers = {
-        "X-API-KEY": api_key,
-        "Content-Type": "application/json"
-    }
-    payload = {"q": query, "num": 3}
-    
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        snippets = []
-        for result in data.get("organic", [])[:3]:
-            snippet = result.get("snippet", "")
+        results = []
+        for item in data.get("organic", [])[:num_results]:
+            snippet = item.get("snippet", "")
+            link = item.get("link", "")
+            title = item.get("title", "")
             if snippet:
-                snippets.append(snippet)
-        
-        if snippets:
-            return "\n\n".join(snippets)
-        return "No search results found."
+                results.append({"title": title, "snippet": snippet, "link": link})
+
+        # Also grab knowledge graph if present
+        kg = data.get("knowledgeGraph", {})
+        if kg.get("description"):
+            results.insert(0, {"title": kg.get("title", ""), "snippet": kg["description"], "link": ""})
+
+        return results
     except Exception as e:
-        return f"Search error: {str(e)}"
+        return []
 
-# ============================================
-# GROQ API FUNCTIONS
-# ============================================
 
-def groq_generate(api_key: str, prompt: str, temperature: float = 0.0) -> str:
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    
-    body = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
-        "max_tokens": 4096,
-    }
-    
+def format_search_for_prompt(results):
+    """Format search results into a string for the LLM prompt"""
+    if not results:
+        return "No search results available."
+    lines = []
+    for i, r in enumerate(results, 1):
+        lines.append(f"[{i}] {r['title']}\n{r['snippet']}")
+    return "\n\n".join(lines)
+
+
+def groq_call(system_prompt, user_prompt, max_tokens=2000, retry=0):
+    """Call Groq API with system+user messages and retry on rate limit"""
     try:
-        response = requests.post(GROQ_API_URL, headers=headers, json=body, timeout=60)
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+        body = {
+            "model": GROQ_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0,
+            "max_tokens": max_tokens
+        }
+        response = requests.post(GROQ_API_URL, headers=headers, json=body, timeout=90)
+
+        if response.status_code == 429:
+            if retry < 4:
+                wait_time = (retry + 1) * 6
+                time.sleep(wait_time)
+                return groq_call(system_prompt, user_prompt, max_tokens, retry + 1)
+            return None
+
         response.raise_for_status()
-        data = response.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        if not content:
-            raise RuntimeError("Empty response from Groq API")
-        return content
-    except requests.HTTPError as exc:
-        if exc.response is not None:
-            error_data = exc.response.json()
-            error_msg = error_data.get("error", {}).get("message", str(exc))
-            raise RuntimeError(f"Groq API error: {error_msg}")
-        raise RuntimeError(f"Groq API error: {exc}")
-    except Exception as exc:
-        raise RuntimeError(f"Groq request failed: {exc}")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
+        return response.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        if retry < 2:
+            time.sleep(4)
+            return groq_call(system_prompt, user_prompt, max_tokens, retry + 1)
+        return None
 
-def parse_json_text(text: str):
-    cleaned = text.strip()
-    json_match = re.search(r'```json\s*(.*?)\s*```', cleaned, re.DOTALL)
-    if json_match:
-        cleaned = json_match.group(1)
-    if cleaned.startswith('[') or cleaned.startswith('{'):
-        return json.loads(cleaned)
-    json_match2 = re.search(r'(\[.*\]|\{.*\})', cleaned, re.DOTALL)
-    if json_match2:
-        return json.loads(json_match2.group(1))
-<<<<<<< HEAD
-    raise ValueError("Could not parse JSON")
-=======
-    raise ValueError(f"Could not parse JSON")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 
-def extract_text_from_pdf(uploaded_file) -> str:
-    uploaded_file.seek(0)
-    with pdfplumber.open(uploaded_file) as pdf:
-        pages = [page.extract_text() or "" for page in pdf.pages]
-    return "\n\n".join(pages)
+def extract_pdf_text(file):
+    """Extract all text from uploaded PDF"""
+    pages_text = []
+    with pdfplumber.open(file) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                pages_text.append(text)
+    return "\n\n".join(pages_text)
 
-def split_sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[.!?])\s+|\n+", text)
-<<<<<<< HEAD
-    return [p.strip() for p in parts if p and p.strip()]
-=======
-    return [part.strip() for part in parts if part and part.strip()]
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
 
-def infer_claim_category(text: str) -> str:
-    lowered = text.lower()
-    if re.search(r"\b(?:19|20)\d{2}\b", lowered):
-        return "date"
-    if re.search(r"[$€£₹]|\b(?:million|billion|crore)\b", lowered):
-        return "financial"
-    if re.search(r"\b(?:version|api|model|technical)\b", lowered):
-        return "technical"
-    if re.search(r"\b(?:study|survey|research)\b", lowered):
-        return "research"
-    if re.search(r"\d|%", lowered):
-        return "statistic"
-    return "other"
+# ============================================
+# CLAIM EXTRACTION (LLM-powered, not just regex)
+# ============================================
 
-def looks_like_claim(text: str) -> bool:
-    cleaned = " ".join(text.split())
-    if len(cleaned) < MIN_CLAIM_LENGTH or len(cleaned) > MAX_CLAIM_LENGTH:
-        return False
-    if not re.search(r"\d|%|[$€£₹]|\b(?:million|billion|crore|version|study|research)\b", cleaned, re.IGNORECASE):
-        return False
-    return True
+def extract_claims_with_llm(text, max_claims=12):
+    """Use LLM to identify verifiable factual claims from document text"""
 
-def extract_claims_locally(text: str) -> list[dict]:
+    # Truncate text if too long
+    truncated = text[:6000] if len(text) > 6000 else text
+
+    system = """You are an expert fact-checker. Your job is to identify specific, verifiable factual claims from documents.
+
+Focus on:
+- Statistics and numbers (percentages, counts, revenue figures)
+- Dates and timelines (founded year, launch date, milestones)
+- Rankings and positions ("world's largest", "#1 in...")
+- Named facts about companies, countries, people
+- Scientific or technical figures
+- Market size or share claims
+- Growth rates and projections
+
+AVOID extracting:
+- Vague opinions or predictions without numbers
+- Marketing slogans or subjective claims
+- Very obvious/trivially true statements
+
+Respond ONLY with a valid JSON array. No extra text."""
+
+    user = f"""Extract up to {max_claims} specific, verifiable factual claims from this document. Each claim must be a complete sentence that can be independently fact-checked.
+
+DOCUMENT:
+{truncated}
+
+Return JSON array:
+[
+  {{"claim": "The full claim sentence", "category": "statistic|date|ranking|technical|financial|other"}},
+  ...
+]"""
+
+    response = groq_call(system, user, max_tokens=2000)
+
+    if response:
+        # Strip markdown fences if present
+        clean = re.sub(r"```(?:json)?", "", response).strip().rstrip("`").strip()
+        # Find JSON array
+        match = re.search(r'\[.*\]', clean, re.DOTALL)
+        if match:
+            try:
+                claims = json.loads(match.group())
+                # Validate structure
+                valid = []
+                for c in claims:
+                    if isinstance(c, dict) and "claim" in c and len(str(c["claim"])) > 15:
+                        valid.append({
+                            "claim": str(c["claim"]).strip(),
+                            "category": str(c.get("category", "statistic")).lower()
+                        })
+                return valid[:max_claims]
+            except json.JSONDecodeError:
+                pass
+
+    # Fallback to regex-based extraction
+    return extract_claims_regex(text, max_claims)
+
+
+def extract_claims_regex(text, max_claims=12):
+    """Fallback regex-based claim extraction"""
     claims = []
-<<<<<<< HEAD
-    seen = set()
-=======
-    seen_claims = set()
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    for sentence in split_sentences(text):
-        candidate = " ".join(sentence.split())
-        if not looks_like_claim(candidate) or candidate.casefold() in seen:
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    keywords = [
+        'million', 'billion', 'crore', 'lakh', 'trillion',
+        'percent', '%', '$', '₹', '€', '£',
+        'revenue', 'profit', 'loss', 'earnings', 'valuation',
+        'employees', 'workforce', 'subscribers', 'users',
+        'founded', 'launched', 'released', 'established',
+        'largest', 'biggest', 'fastest', 'first', 'leading',
+        'population', 'ranked', 'position', 'market share',
+        'growth', 'increase', 'decrease', 'declined', 'rose'
+    ]
+
+    for s in sentences:
+        s = s.strip()
+        if len(s) < 20 or len(s) > 400:
             continue
-<<<<<<< HEAD
-        seen.add(candidate.casefold())
-        claims.append({"id": len(claims)+1, "claim": candidate, "category": infer_claim_category(candidate)})
-=======
-        claim_key = candidate.casefold()
-        if claim_key in seen_claims:
-            continue
-        seen_claims.add(claim_key)
-        claims.append({
-            "id": len(claims) + 1,
-            "claim": candidate,
-            "category": infer_claim_category(candidate),
-        })
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-        if len(claims) >= MAX_CLAIMS:
+        has_number = bool(re.search(r'\d+', s))
+        has_keyword = any(kw in s.lower() for kw in keywords)
+        if has_number or has_keyword:
+            s_clean = re.sub(r'^\d+[\.\)]\s*', '', s)
+            claims.append({"claim": s_clean, "category": "statistic"})
+        if len(claims) >= max_claims:
             break
+
     return claims
 
-def normalize_verdict(value) -> str:
-    verdict = str(value or "Unverified").strip().title()
-    mapping = {"True": "Verified", "Mostly True": "Inaccurate", "Partly True": "Inaccurate", "Misleading": "Inaccurate", "Incorrect": "False"}
-    verdict = mapping.get(verdict, verdict)
-    return verdict if verdict in VALID_VERDICTS else "Unverified"
 
-def normalize_confidence(value) -> str:
-<<<<<<< HEAD
-    conf = str(value or "Low").strip().title()
-    return conf if conf in VALID_CONFIDENCE else "Low"
+# ============================================
+# CLAIM VERIFICATION
+# ============================================
 
-def normalize_analysis_results(payload) -> list[dict]:
-    if not isinstance(payload, list):
-        raise ValueError("Expected JSON array")
-    results = []
-    seen = set()
-=======
-    confidence = str(value or "Low").strip().title()
-    return confidence if confidence in VALID_CONFIDENCE else "Low"
+def build_search_query(claim):
+    """Build an optimised search query from the claim"""
+    # Remove filler words, keep key nouns/numbers
+    stop = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'has', 'have', 'had',
+            'that', 'this', 'with', 'for', 'and', 'or', 'but', 'in', 'on', 'at'}
+    tokens = [t for t in re.findall(r'\b\w+\b', claim) if t.lower() not in stop]
+    query = " ".join(tokens[:12])
+    return query + " fact check"
 
-def normalize_analysis_results(payload) -> list[dict]:
-    if not isinstance(payload, list):
-        raise ValueError("Analysis did not return a JSON array.")
-    results = []
-    seen_claims = set()
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        claim_text = str(item.get("claim", "")).strip()
-<<<<<<< HEAD
-        if not claim_text or claim_text.casefold() in seen:
-            continue
-        seen.add(claim_text.casefold())
-        results.append({
-            "id": len(results)+1,
-=======
-        if not claim_text or claim_text.casefold() in seen_claims:
-            continue
-        seen_claims.add(claim_text.casefold())
-        results.append({
-            "id": len(results) + 1,
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-            "claim": claim_text,
-            "category": str(item.get("category", "other")).strip().lower(),
-            "verdict": normalize_verdict(item.get("verdict")),
-            "confidence": normalize_confidence(item.get("confidence")),
-            "explanation": str(item.get("explanation", "No explanation.")).strip(),
-            "correct_fact": str(item.get("correct_fact")).strip() if item.get("correct_fact") else None,
-            "sources": [str(s).strip() for s in (item.get("sources", []) if isinstance(item.get("sources"), list) else [])][:MAX_SOURCES],
-        })
-        if len(results) >= MAX_CLAIMS:
-            break
-    if not results:
-<<<<<<< HEAD
-        raise ValueError("No valid claims found")
-=======
-        raise ValueError("No claim analysis results were returned.")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    return results
 
-def build_unverified_results(claims, reason):
-    return [{
-<<<<<<< HEAD
-        "id": c["id"], "claim": c["claim"], "category": c["category"],
-        "verdict": "Unverified", "confidence": "Low", "explanation": reason,
-        "correct_fact": None, "sources": []
-=======
-        "id": c["id"],
-        "claim": c["claim"],
-        "category": c["category"],
+def verify_claim(claim_text, show_snippet=False):
+    """Verify a single claim using web search + Groq LLM"""
+
+    search_query = build_search_query(claim_text)
+    search_results = serper_search(search_query, num_results=5)
+    search_text = format_search_for_prompt(search_results)
+    current_year = datetime.now().year
+
+    system = """You are a rigorous, unbiased fact-checker. You verify claims against real-world evidence from web search results.
+
+Rules:
+- Verified: The claim's core facts match current search evidence
+- Inaccurate: The claim has wrong numbers, wrong dates, or is significantly outdated
+- False: The claim is completely fabricated or contradicts all evidence
+- Unverified: Cannot find sufficient evidence to confirm or deny
+
+Be especially strict about:
+- Numbers and statistics (even small differences matter)
+- Dates and years
+- Superlatives like "world's largest" or "first ever"
+- Market share or ranking claims
+
+Always provide the correct fact with specific numbers if the claim is wrong. Respond ONLY with valid JSON."""
+
+    user = f"""Fact-check this claim using the search results below.
+
+CLAIM: "{claim_text}"
+
+GOOGLE SEARCH RESULTS (as of {current_year}):
+{search_text}
+
+Respond ONLY with this JSON (no extra text, no markdown):
+{{
+    "verdict": "Verified|Inaccurate|False|Unverified",
+    "confidence": "High|Medium|Low",
+    "explanation": "2-3 sentences explaining your verdict citing the search results",
+    "correct_fact": "The correct fact with specific numbers if claim is wrong, else null",
+    "search_query_used": "{search_query}"
+}}"""
+
+    response = groq_call(system, user, max_tokens=800)
+
+    result = {
         "verdict": "Unverified",
         "confidence": "Low",
-        "explanation": reason,
+        "explanation": "Could not verify automatically.",
         "correct_fact": None,
-        "sources": [],
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    } for c in claims]
+        "search_snippets": search_results[:3] if show_snippet else []
+    }
+
+    if response:
+        clean = re.sub(r"```(?:json)?", "", response).strip().rstrip("`").strip()
+        match = re.search(r'\{.*\}', clean, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+                result.update(parsed)
+                result["search_snippets"] = search_results[:3] if show_snippet else []
+            except json.JSONDecodeError:
+                pass
+
+    return result
+
 
 # ============================================
-# ANALYSIS FUNCTIONS
+# UI — HERO SECTION
 # ============================================
-
-def analyze_with_groq(groq_key: str, serper_key: str, text: str) -> list[dict]:
-    local_claims = extract_claims_locally(text)
-    if not local_claims:
-<<<<<<< HEAD
-        raise ValueError("No claims found")
-=======
-        raise ValueError("No claims found in document")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    
-    results = []
-    for claim_item in local_claims[:MAX_CLAIMS]:
-        claim_text = claim_item["claim"]
-<<<<<<< HEAD
-        search_results = serper_web_search(claim_text, serper_key) if serper_key else ""
-        
-        prompt = f"""You are a fact-checking expert.
-
-Claim: "{claim_text}"
-
-{f'Search Results:\n{search_results}' if search_results else 'No search results. Use your knowledge.'}
-
-Respond with ONLY JSON (no other text):
-{{
-    "claim": "{claim_text}",
-    "category": "{claim_item['category']}",
-    "verdict": "Verified/Inaccurate/False/Unverified",
-    "confidence": "High/Medium/Low",
-    "explanation": "Brief explanation",
-    "correct_fact": "Correct fact if wrong, else null",
-    "sources": ["source or null"]
-}}"""
-        
-        try:
-            result_text = groq_generate(groq_key, prompt, temperature=0.0)
-            parsed = parse_json_text(result_text)
-            if isinstance(parsed, dict):
-                results.append(parsed)
-            elif isinstance(parsed, list) and parsed:
-                results.append(parsed[0])
-        except Exception as e:
-            results.append({"claim": claim_text, "category": claim_item["category"], "verdict": "Unverified", "confidence": "Low", "explanation": f"Error: {str(e)[:100]}", "correct_fact": None, "sources": []})
-    
-    return normalize_analysis_results(results)
-
-=======
-        
-        # Search web if Serper key is available
-        search_results = ""
-        if serper_key:
-            search_results = serper_web_search(claim_text, serper_key)
-        
-        prompt = f"""You are a fact-checking expert.
-
-Claim: "{claim_text}"
-
-{'Search Results:' + search_results if search_results else 'No search results available. Use your knowledge.'}
-
-Based on the above, respond with JSON:
-{{
-    "claim": "{claim_text}",
-    "category": "{claim_item['category']}",
-    "verdict": "Verified/Inaccurate/False/Unverified",
-    "confidence": "High/Medium/Low",
-    "explanation": "Brief explanation",
-    "correct_fact": "Correct fact if wrong, else null",
-    "sources": ["source1 or null"]
-}}"""
-        
-        try:
-            result_text = groq_generate(groq_key, prompt, temperature=0.0)
-            parsed = parse_json_text(result_text)
-            if isinstance(parsed, dict):
-                results.append(parsed)
-            elif isinstance(parsed, list) and len(parsed) > 0:
-                results.append(parsed[0])
-        except Exception as e:
-            results.append({
-                "claim": claim_text,
-                "category": claim_item["category"],
-                "verdict": "Unverified",
-                "confidence": "Low",
-                "explanation": f"Verification failed: {str(e)[:100]}",
-                "correct_fact": None,
-                "sources": []
-            })
-    
-    return normalize_analysis_results(results)
-
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-# ============================================
-# UI FUNCTIONS
-# ============================================
-
-def badge_html(verdict: str) -> str:
-    mapping = {"Verified": ("verified", "✅ Verified"), "Inaccurate": ("inaccurate", "⚠️ Inaccurate"), "False": ("false", "❌ False"), "Unverified": ("unverified", "❓ Unverified")}
-    cls, label = mapping.get(verdict, ("unverified", verdict))
-    return f'<span class="badge badge-{cls}">{label}</span>'
-
-def render_claim_card(result: dict) -> None:
-    verdict = result.get("verdict", "Unverified")
-<<<<<<< HEAD
-    card_cls = {"Verified": "verified", "Inaccurate": "inaccurate", "False": "false", "Unverified": "unverified"}.get(verdict, "unverified")
-=======
-    card_cls = {
-        "Verified": "verified",
-        "Inaccurate": "inaccurate",
-        "False": "false",
-        "Unverified": "unverified",
-    }.get(verdict, "unverified")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    
-    claim_text = html.escape(str(result.get("claim", "")).strip())
-    explanation = html.escape(str(result.get("explanation", "")).strip())
-    confidence = str(result.get("confidence", "?")).strip().title()
-    category = html.escape(str(result.get("category", "")).strip().upper())
-    
-<<<<<<< HEAD
-    correct_html = f"<p class='correct-fact'>✅ Correct fact: {html.escape(str(result['correct_fact']))}</p>" if result.get("correct_fact") else ""
-=======
-    correct_html = ""
-    if result.get("correct_fact"):
-        correct_html = f"<p class='correct-fact'>✅ Correct fact: {html.escape(str(result['correct_fact']))}</p>"
-    
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    sources_html = ""
-    if result.get("sources"):
-        source_tags = [f"<span class='source-link'>{html.escape(str(s))}</span>" for s in result["sources"][:3]]
-        sources_html = f"<p style='margin-top:0.4rem;'>{' · '.join(source_tags)}</p>"
-    
-    st.markdown(f"""
-    <div class="claim-card {card_cls}">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
-        {badge_html(verdict)}
-        <span style="font-size:0.75rem;font-weight:600;">{confidence} confidence · {category}</span>
-      </div>
-      <p class="claim-text">"{claim_text}"</p>
-      <p class="verdict-text">{explanation}</p>
-      {correct_html}
-      {sources_html}
+st.markdown("""
+<div class="hero">
+    <h1>✅ FactCheck AI</h1>
+    <p style="color: #94a3b8; font-size: 1.1rem; margin: 0 0 1rem 0;">
+        Automated Claim Verification with Live Web Search
+    </p>
+    <div style="display: inline-flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
+        <span style="background: rgba(99,102,241,0.2); color: #a5b4fc; padding: 0.3rem 1rem; border-radius: 50px; font-size: 0.85rem;">⚡ Groq LPU Inference</span>
+        <span style="background: rgba(99,102,241,0.2); color: #a5b4fc; padding: 0.3rem 1rem; border-radius: 50px; font-size: 0.85rem;">🔍 Google Web Search</span>
+        <span style="background: rgba(99,102,241,0.2); color: #a5b4fc; padding: 0.3rem 1rem; border-radius: 50px; font-size: 0.85rem;">🤖 LLaMA 3.3 70B</span>
+        <span style="background: rgba(99,102,241,0.2); color: #a5b4fc; padding: 0.3rem 1rem; border-radius: 50px; font-size: 0.85rem;">📊 Real-time Facts</span>
     </div>
-    """, unsafe_allow_html=True)
+</div>
+""", unsafe_allow_html=True)
+
+# Steps
+st.markdown("""
+<div class="steps">
+    <div class="step-card"><div class="step-number">1</div><strong style="color:#e2e8f0;">Upload PDF</strong><br><span style="font-size:0.8rem;">Any text-based PDF</span></div>
+    <div class="step-card"><div class="step-number">2</div><strong style="color:#e2e8f0;">AI Extracts Claims</strong><br><span style="font-size:0.8rem;">LLM identifies verifiable facts</span></div>
+    <div class="step-card"><div class="step-number">3</div><strong style="color:#e2e8f0;">Live Web Verify</strong><br><span style="font-size:0.8rem;">Google search cross-reference</span></div>
+    <div class="step-card"><div class="step-number">4</div><strong style="color:#e2e8f0;">Detailed Report</strong><br><span style="font-size:0.8rem;">Verdicts + correct facts</span></div>
+</div>
+""", unsafe_allow_html=True)
+
+# Upload Area
+uploaded_file = st.file_uploader(
+    "📄 Upload PDF Document",
+    type=["pdf"],
+    help="Upload any PDF containing statistics, dates, or factual claims. Works great on marketing docs, reports, and press releases."
+)
+
+# Analyze Button
+col1, col2, col3 = st.columns([1, 1, 1])
+with col2:
+    analyze_btn = st.button("🚀 Start Fact-Checking", use_container_width=True, type="primary")
 
 # ============================================
-# MAIN APP
+# PROCESSING PIPELINE
 # ============================================
-
-with st.sidebar:
-    st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
-<<<<<<< HEAD
-    st.markdown("### ⚡ Groq API")
-=======
-    st.markdown("### ⚡ Groq API Configuration")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    
-    groq_key = get_groq_key()
-    serper_key = get_serper_key()
-    
-    if groq_key:
-<<<<<<< HEAD
-        st.success(f"✅ Groq API key configured\nModel: {GROQ_MODEL}")
-    else:
-        st.error("❌ Groq API key missing - Add to secrets")
-=======
-        st.success("✅ Groq API key configured")
-        st.caption(f"Model: {GROQ_MODEL}")
-    else:
-        st.error("❌ Groq API key missing")
-        st.caption("Add GROQ_API_KEY to secrets")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    
-    if serper_key:
-        st.success("✅ Serper API key configured (Web Search)")
-    else:
-<<<<<<< HEAD
-        st.info("ℹ️ Serper key optional - add for web search")
-=======
-        st.info("ℹ️ Serper key not set - using Groq only")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
-    st.markdown("### 📊 Verdict Guide")
-<<<<<<< HEAD
-    st.markdown("✅ **Verified** - Matches evidence\n⚠️ **Inaccurate** - Outdated/wrong\n❌ **False** - Contradicted\n❓ **Unverified** - Can't verify")
-=======
-    st.markdown("""
-    - ✅ **Verified** - Matches evidence
-    - ⚠️ **Inaccurate** - Outdated/wrong numbers
-    - ❌ **False** - Contradicted
-    - ❓ **Unverified** - Can't verify
-    """)
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    st.markdown('</div>', unsafe_allow_html=True)
-
-col_upload, col_info = st.columns([2, 1])
-
-with col_upload:
-    uploaded_file = st.file_uploader("📄 Upload PDF", type=["pdf"])
-
-with col_info:
-    st.markdown("""
-    <div class="stat-box" style="margin-bottom:0.8rem;">
-      <div class="stat-num" style="color:#6366f1;">⚡</div>
-      <div class="stat-label">Groq LPU - Ultra Fast</div>
-    </div>
-    <div style="background:#1e2130;border-radius:10px;padding:1rem;border:1px solid #2d3748;font-size:0.82rem;">
-<<<<<<< HEAD
-      <b>How it works</b><br><br>1. Upload PDF<br>2. Groq AI extracts claims<br>3. Web search verification<br>4. Get verdict report
-=======
-      <b>How it works</b><br><br>
-      1. Upload PDF with claims<br>
-      2. Groq AI extracts facts<br>
-      3. Web search verification<br>
-      4. Get verdict report
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    </div>
-    """, unsafe_allow_html=True)
-
-run = st.button("🚀 Analyze PDF", use_container_width=True, type="primary")
-
-if run:
+if analyze_btn:
     if not uploaded_file:
-        st.error("Please upload a PDF file.")
+        st.error("❌ Please upload a PDF file first.")
         st.stop()
-    
-    groq_key = get_groq_key()
-    if not groq_key:
-<<<<<<< HEAD
-        st.error("❌ Groq API key not configured! Add GROQ_API_KEY to secrets.")
-=======
-        st.error("❌ Groq API key not configured!")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-        st.stop()
-    
-    with st.spinner("📄 Extracting text from PDF..."):
+
+    st.info("🌐 **LIVE WEB SEARCH ENABLED** — Cross-referencing claims against real-time Google results")
+
+    # Step 1: Extract PDF text
+    with st.spinner("📄 Reading PDF and extracting text..."):
         try:
-            pdf_text = extract_text_from_pdf(uploaded_file)
+            pdf_text = extract_pdf_text(uploaded_file)
         except Exception as e:
-            st.error(f"PDF error: {e}")
+            st.error(f"❌ PDF reading error: {e}")
             st.stop()
-    
+
     if not pdf_text.strip():
-        st.error("No text found in PDF.")
+        st.error("⚠️ No text found in this PDF. Please ensure it's a text-based (not scanned/image) PDF.")
         st.stop()
-    
-    st.success(f"✅ Extracted {len(pdf_text):,} characters")
-    
-<<<<<<< HEAD
-    with st.spinner("⚡ Analyzing with Groq (ultra-fast)..."):
-        try:
-            results = analyze_with_groq(groq_key, serper_key, pdf_text)
-            mode = "groq_web_search" if serper_key else "groq_model_only"
-=======
-    with st.spinner("⚡ Analyzing with Groq (this is fast!)..."):
-        try:
-            results = analyze_with_groq(groq_key, serper_key, pdf_text)
-            analysis_mode = "groq_live_search" if serper_key else "groq_model_only"
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-        except Exception as e:
-            local_claims = extract_claims_locally(pdf_text)
-            if not local_claims:
-                st.error(f"Analysis failed: {e}")
-                st.stop()
-            results = build_unverified_results(local_claims, f"AI unavailable: {str(e)[:100]}")
-<<<<<<< HEAD
-            mode = "local_fallback"
-=======
-            analysis_mode = "local_fallback"
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    
-    st.success(f"✅ Analysis complete for {len(results)} claims!")
-    
+
+    char_count = len(pdf_text)
+    st.success(f"✅ Extracted **{char_count:,} characters** from {uploaded_file.name}")
+
+    # Step 2: Extract claims using LLM
+    with st.spinner("🤖 AI is identifying verifiable claims..."):
+        claims = extract_claims_with_llm(pdf_text, max_claims=max_claims)
+
+    if not claims:
+        st.error("⚠️ No verifiable claims found. Make sure your PDF contains statistics, numbers, or factual assertions.")
+        st.stop()
+
+    st.success(f"✅ Identified **{len(claims)} verifiable claims** — Starting web verification...")
+
+    # Step 3: Verify each claim
+    results = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    for i, claim_obj in enumerate(claims):
+        claim_txt = claim_obj["claim"]
+        status_text.info(f"🌐 Verifying {i+1}/{len(claims)}: *{claim_txt[:80]}{'...' if len(claim_txt)>80 else ''}*")
+
+        result = verify_claim(claim_txt, show_snippet=show_snippets)
+        result["claim"] = claim_txt
+        result["category"] = claim_obj.get("category", "statistic")
+        results.append(result)
+
+        progress_bar.progress((i + 1) / len(claims))
+        time.sleep(1.2)  # Rate limit safety
+
+    status_text.empty()
+    progress_bar.empty()
+
+    # ============================================
+    # DISPLAY RESULTS
+    # ============================================
     st.markdown("---")
-    st.markdown("## 📊 Analysis Report")
-<<<<<<< HEAD
-    st.caption(f"Mode: {ANALYSIS_MODE_LABELS.get(mode, mode)} | Model: {GROQ_MODEL}")
-    st.markdown(f"*Generated: {datetime.now().strftime('%B %d, %Y at %H:%M')}*")
-=======
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-    
+    st.markdown("## 📊 Fact-Check Report")
+    col_date, col_file = st.columns(2)
+    with col_date:
+        st.caption(f"📅 Generated: {datetime.now().strftime('%B %d, %Y at %H:%M:%S')}")
+    with col_file:
+        st.caption(f"📄 File: {uploaded_file.name} | 🌐 Web Search: ✅ Enabled")
+
+    # Summary Stats
     counts = {"Verified": 0, "Inaccurate": 0, "False": 0, "Unverified": 0}
     for r in results:
-        counts[r.get("verdict", "Unverified")] += 1
-    
-    c1, c2, c3, c4 = st.columns(4)
-<<<<<<< HEAD
-    for col, (label, color, icon) in zip([c1, c2, c3, c4], [("Verified", "#10b981", "✅"), ("Inaccurate", "#f59e0b", "⚠️"), ("False", "#ef4444", "❌"), ("Unverified", "#6366f1", "❓")]):
-=======
-    for col, (label, color, icon) in zip([c1, c2, c3, c4], [
-        ("Verified", "#10b981", "✅"), ("Inaccurate", "#f59e0b", "⚠️"),
-        ("False", "#ef4444", "❌"), ("Unverified", "#6366f1", "❓"),
-    ]):
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
-        with col:
-            st.markdown(f"<div class='stat-box'><div class='stat-num' style='color:{color};'>{icon} {counts[label]}</div><div class='stat-label'>{label}</div></div>", unsafe_allow_html=True)
-    
-    st.markdown("### 🔎 Detailed Results")
-    for item in results:
-        render_claim_card(item)
-    
-<<<<<<< HEAD
-    report_json = json.dumps({"generated_at": datetime.now().isoformat(), "model": GROQ_MODEL, "mode": mode, "summary": counts, "results": results}, indent=2)
-    st.download_button("⬇️ Download JSON Report", data=report_json, file_name="factcheck_report.json", mime="application/json")
-=======
-    report_json = json.dumps({
+        verdict = r.get("verdict", "Unverified")
+        if verdict not in counts:
+            verdict = "Unverified"
+        counts[verdict] += 1
+
+    total = len(results)
+    accuracy_score = round((counts["Verified"] / total) * 100) if total else 0
+    flag_score = round(((counts["Inaccurate"] + counts["False"]) / total) * 100) if total else 0
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:#10b981;">✅ {counts["Verified"]}</div><div>Verified</div></div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:#f59e0b;">⚠️ {counts["Inaccurate"]}</div><div>Inaccurate</div></div>', unsafe_allow_html=True)
+    with col3:
+        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:#ef4444;">❌ {counts["False"]}</div><div>False</div></div>', unsafe_allow_html=True)
+    with col4:
+        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:#6366f1;">❓ {counts["Unverified"]}</div><div>Unverified</div></div>', unsafe_allow_html=True)
+    with col5:
+        color = "#10b981" if flag_score < 30 else "#f59e0b" if flag_score < 60 else "#ef4444"
+        st.markdown(f'<div class="stat-card"><div class="stat-number" style="color:{color};">🚩 {flag_score}%</div><div>Flag Rate</div></div>', unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ============================================
+    # DETAILED RESULTS TABS
+    # ============================================
+    st.markdown("### 🔎 Detailed Analysis")
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        f"📋 All ({total})",
+        f"✅ Verified ({counts['Verified']})",
+        f"⚠️ Inaccurate ({counts['Inaccurate']})",
+        f"❌ False ({counts['False']})",
+        f"❓ Unverified ({counts['Unverified']})"
+    ])
+
+    verdict_icon = {"Verified": "✅", "Inaccurate": "⚠️", "False": "❌", "Unverified": "❓"}
+
+    def render_claim_cards(items):
+        if not items:
+            st.info("No claims in this category.")
+            return
+        for item in items:
+            v = item.get("verdict", "Unverified")
+            if v not in verdict_icon:
+                v = "Unverified"
+            icon = verdict_icon[v]
+            cls = v.lower()
+            conf = item.get("confidence", "Low")
+            cat = item.get("category", "statistic").upper()
+
+            correct_html = ""
+            cf = item.get("correct_fact")
+            if cf and str(cf).lower() not in ["none", "null", "", "n/a"]:
+                correct_html = f'<div class="correct-fact">💡 <strong>CORRECT FACT:</strong> {html.escape(str(cf))}</div>'
+
+            snippet_html = ""
+            if show_snippets and item.get("search_snippets"):
+                snip = item["search_snippets"][0]
+                snippet_html = f'''<div class="search-snippet">🔍 Source: <em>{html.escape(snip.get("title",""))}</em> — {html.escape(snip.get("snippet","")[:200])}</div>'''
+
+            st.markdown(f"""
+            <div class="claim-card {cls}">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                    <span class="badge bg-{cls}">{icon} {v}</span>
+                    <span style="font-size: 0.72rem; color: #64748b;">{conf} confidence | {cat}</span>
+                </div>
+                <p style="margin-top: 0.8rem; color: #e2e8f0;"><strong>"{html.escape(str(item['claim']))}"</strong></p>
+                <p style="color: #94a3b8; font-size: 0.9rem; margin: 0.3rem 0;">{html.escape(str(item.get('explanation', 'No explanation provided.')))}</p>
+                {correct_html}
+                {snippet_html}
+            </div>
+            """, unsafe_allow_html=True)
+
+    for tab, verdict_filter in zip(
+        [tab1, tab2, tab3, tab4, tab5],
+        ["All", "Verified", "Inaccurate", "False", "Unverified"]
+    ):
+        with tab:
+            filtered = results if verdict_filter == "All" else [
+                r for r in results if r.get("verdict", "Unverified") == verdict_filter
+            ]
+            render_claim_cards(filtered)
+
+    # ============================================
+    # DOWNLOAD REPORT
+    # ============================================
+    st.markdown("---")
+    report_data = {
         "generated_at": datetime.now().isoformat(),
-        "model": GROQ_MODEL,
-        "mode": analysis_mode,
-        "summary": counts,
-        "results": results,
-    }, indent=2)
-    
-    st.download_button("⬇️ Download JSON Report", data=report_json, file_name="factcheck_report.json", mime="application/json")
->>>>>>> ff6d52ea8562fa247bbf8535d102105822ad1420
+        "file_name": uploaded_file.name,
+        "total_claims": total,
+        "web_search_enabled": True,
+        "summary": {**counts, "flag_rate_percent": flag_score},
+        "results": [
+            {
+                "id": i + 1,
+                "claim": r["claim"],
+                "category": r.get("category", "statistic"),
+                "verdict": r.get("verdict", "Unverified"),
+                "confidence": r.get("confidence", "Low"),
+                "explanation": r.get("explanation", ""),
+                "correct_fact": r.get("correct_fact")
+            }
+            for i, r in enumerate(results)
+        ]
+    }
+
+    col_dl1, col_dl2, col_dl3 = st.columns([1, 2, 1])
+    with col_dl2:
+        st.download_button(
+            label="📥 Download Full Report (JSON)",
+            data=json.dumps(report_data, indent=2, ensure_ascii=False),
+            file_name=f"factcheck_{uploaded_file.name.replace('.pdf','')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            use_container_width=True
+        )
+
+    st.balloons()
+    st.success(f"✅ Fact-checking complete! Flagged **{counts['Inaccurate'] + counts['False']}** problematic claims out of {total} total.")
+
+# ============================================
+# FOOTER
+# ============================================
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; font-size: 0.72rem; color: #475569; padding: 1rem;">
+    🔍 <strong>FactCheck AI</strong> — Automated Truth Layer &nbsp;|&nbsp;
+    ✅ AI Claim Extraction &nbsp;|&nbsp;
+    🌐 Live Google Search via Serper &nbsp;|&nbsp;
+    📊 Verified / Inaccurate / False Verdicts &nbsp;|&nbsp;
+    💡 Correct Facts Provided
+</div>
+""", unsafe_allow_html=True)
