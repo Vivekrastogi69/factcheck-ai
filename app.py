@@ -9,8 +9,14 @@ import pdfplumber
 import requests
 import streamlit as st
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+# ============================================
+# API CONFIGURATION - MULTI API SUPPORT
+# ============================================
+
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+# Document limits
 DOCUMENT_CHAR_LIMIT = 16000
 MAX_CLAIMS = 6
 MAX_SOURCES = 3
@@ -18,12 +24,16 @@ VALID_VERDICTS = {"Verified", "Inaccurate", "False", "Unverified"}
 VALID_CONFIDENCE = {"High", "Medium", "Low"}
 MIN_CLAIM_LENGTH = 25
 MAX_CLAIM_LENGTH = 280
+
 ANALYSIS_MODE_LABELS = {
-    "gemini_live_web": "Live web fact-check",
-    "gemini_model_only": "Model-only fallback",
-    "local_fallback": "Local fallback",
+    "gemini_live_web": "🌐 Live web fact-check (Gemini)",
+    "gemini_model_only": "🤖 Model-only fallback (Gemini)",
+    "anthropic_live_web": "🌐 Live web fact-check (Claude)",
+    "anthropic_model_only": "🤖 Model-only fallback (Claude)",
+    "local_fallback": "📝 Local fallback (No AI)",
 }
 
+# JSON Schema for fact-checking
 ANALYSIS_SCHEMA = {
     "type": "array",
     "items": {
@@ -49,13 +59,18 @@ ANALYSIS_SCHEMA = {
     },
 }
 
+# ============================================
+# PAGE CONFIGURATION
+# ============================================
+
 st.set_page_config(
-    page_title="FactCheck AI",
+    page_title="FactCheck AI - Multi API",
     page_icon="🔍",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
+# Custom CSS
 st.markdown(
     """
 <style>
@@ -136,16 +151,26 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     padding: 0.75rem 2rem !important;
     font-size: 1rem !important;
 }
+
+.sidebar-box {
+    background: #1e2130;
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid #2d3748;
+}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
+# Hero section
 st.markdown(
     """
 <div class="hero">
   <h1>🔍 FactCheck AI</h1>
   <p>Upload a PDF, cross-check factual claims against the live web, and get a clean verdict report.</p>
+  <p style="font-size:0.85rem;margin-top:0.75rem;">✨ Supports Gemini & Claude API | Live Web Search</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -155,15 +180,20 @@ st.markdown(
     """
 <div style="text-align:center;margin-bottom:1.5rem;">
   <span class="step-pill">📄 1. Upload PDF</span>
-  <span class="step-pill">🌐 2. Verify Claims</span>
-  <span class="step-pill">📊 3. Report</span>
+  <span class="step-pill">🔑 2. Choose API</span>
+  <span class="step-pill">🌐 3. Verify Claims</span>
+  <span class="step-pill">📊 4. Report</span>
 </div>
 """,
     unsafe_allow_html=True,
 )
 
+# ============================================
+# API KEY FUNCTIONS
+# ============================================
 
-def get_configured_api_key() -> str:
+def get_gemini_key() -> str:
+    """Get Gemini API key from secrets or env"""
     try:
         if "GEMINI_API_KEY" in st.secrets:
             return str(st.secrets["GEMINI_API_KEY"]).strip()
@@ -171,6 +201,36 @@ def get_configured_api_key() -> str:
         pass
     return os.getenv("GEMINI_API_KEY", "").strip()
 
+def get_anthropic_key() -> str:
+    """Get Anthropic API key from secrets or env"""
+    try:
+        if "ANTHROPIC_API_KEY" in st.secrets:
+            return str(st.secrets["ANTHROPIC_API_KEY"]).strip()
+    except Exception:
+        pass
+    return os.getenv("ANTHROPIC_API_KEY", "").strip()
+
+def get_google_api_key() -> str:
+    """Get Google Search API key"""
+    try:
+        if "GOOGLE_API_KEY" in st.secrets:
+            return str(st.secrets["GOOGLE_API_KEY"]).strip()
+    except Exception:
+        pass
+    return os.getenv("GOOGLE_API_KEY", "").strip()
+
+def get_google_cse_id() -> str:
+    """Get Google CSE ID"""
+    try:
+        if "GOOGLE_CSE_ID" in st.secrets:
+            return str(st.secrets["GOOGLE_CSE_ID"]).strip()
+    except Exception:
+        pass
+    return os.getenv("GOOGLE_CSE_ID", "").strip()
+
+# ============================================
+# GEMINI API FUNCTIONS
+# ============================================
 
 def parse_backend_error(response: requests.Response) -> tuple[int, str, str]:
     status_code = response.status_code
@@ -190,7 +250,6 @@ def parse_backend_error(response: requests.Response) -> tuple[int, str, str]:
 
     return status_code, status, message
 
-
 def format_backend_error(response: requests.Response) -> str:
     status_code, status, message = parse_backend_error(response)
     normalized = message.lower()
@@ -204,7 +263,6 @@ def format_backend_error(response: requests.Response) -> str:
     if status_code == 400 and status == "FAILED_PRECONDITION":
         return "Gemini is not available for this project or region in the current plan."
     return f"Gemini API error ({status_code} {status or 'UNKNOWN'}): {message}"
-
 
 def gemini_generate(
     api_key: str,
@@ -260,6 +318,63 @@ def gemini_generate(
 
     raise RuntimeError("Gemini returned no candidates.")
 
+# ============================================
+# ANTHROPIC (CLAUDE) API FUNCTIONS
+# ============================================
+
+def anthropic_generate(
+    api_key: str,
+    prompt: str,
+    *,
+    use_search: bool = False,
+    temperature: float = 0.0,
+) -> str:
+    """Call Anthropic Claude API"""
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+    
+    body = {
+        "model": "claude-3-sonnet-20241022",
+        "max_tokens": 4096,
+        "temperature": temperature,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    
+    # Add web search tool if requested
+    if use_search:
+        body["tools"] = [{"type": "web_search_20250305"}]
+    
+    try:
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=body,
+            timeout=90,
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        # Extract text from response
+        content = data.get("content", [])
+        for block in content:
+            if block.get("type") == "text":
+                return block.get("text", "")
+        return ""
+    except requests.HTTPError as exc:
+        if exc.response is not None:
+            error_data = exc.response.json()
+            error_msg = error_data.get("error", {}).get("message", str(exc))
+            raise RuntimeError(f"Claude API error: {error_msg}") from exc
+        raise RuntimeError(f"Claude API error: {exc}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Claude request failed: {exc}") from exc
+
+# ============================================
+# COMMON FUNCTIONS
+# ============================================
 
 def response_text(data: dict) -> str:
     candidates = data.get("candidates") or []
@@ -274,13 +389,15 @@ def response_text(data: dict) -> str:
             text_parts.append(text)
     return "\n".join(text_parts).strip()
 
-
 def parse_json_text(text: str) -> Any:
     cleaned = text.strip()
     if not cleaned:
         raise ValueError("Empty model response.")
+    # Extract JSON if wrapped in markdown
+    json_match = re.search(r'```json\s*(.*?)\s*```', cleaned, re.DOTALL)
+    if json_match:
+        cleaned = json_match.group(1)
     return json.loads(cleaned)
-
 
 def extract_text_from_pdf(uploaded_file) -> str:
     uploaded_file.seek(0)
@@ -292,11 +409,9 @@ def extract_text_from_pdf(uploaded_file) -> str:
                 pages.append(text)
     return "\n\n".join(pages)
 
-
 def split_sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?])\s+|\n+", text)
     return [part.strip(" -\t\r") for part in parts if part and part.strip()]
-
 
 def infer_claim_category(text: str) -> str:
     lowered = text.lower()
@@ -312,7 +427,6 @@ def infer_claim_category(text: str) -> str:
         return "statistic"
     return "other"
 
-
 def looks_like_claim(text: str) -> bool:
     cleaned = " ".join(text.split())
     if len(cleaned) < MIN_CLAIM_LENGTH or len(cleaned) > MAX_CLAIM_LENGTH:
@@ -326,7 +440,6 @@ def looks_like_claim(text: str) -> bool:
     if cleaned.endswith(":"):
         return False
     return True
-
 
 def extract_claims_locally(text: str) -> list[dict]:
     claims = []
@@ -355,7 +468,6 @@ def extract_claims_locally(text: str) -> list[dict]:
 
     return claims
 
-
 def normalize_verdict(value: Any) -> str:
     verdict = str(value or "Unverified").strip().title()
     mapping = {
@@ -372,13 +484,11 @@ def normalize_verdict(value: Any) -> str:
         verdict = "Unverified"
     return verdict
 
-
 def normalize_confidence(value: Any) -> str:
     confidence = str(value or "Low").strip().title()
     if confidence not in VALID_CONFIDENCE:
         confidence = "Low"
     return confidence
-
 
 def normalize_analysis_results(payload: Any) -> list[dict]:
     if not isinstance(payload, list):
@@ -450,8 +560,28 @@ def normalize_analysis_results(payload: Any) -> list[dict]:
 
     return results
 
+def build_unverified_results(claims: list[dict], reason: str) -> list[dict]:
+    results = []
+    for claim in claims:
+        results.append(
+            {
+                "id": claim["id"],
+                "claim": claim["claim"],
+                "category": claim["category"],
+                "verdict": "Unverified",
+                "confidence": "Low",
+                "explanation": reason,
+                "correct_fact": None,
+                "sources": [],
+            }
+        )
+    return results
 
-def analyze_document_live(api_key: str, text: str) -> list[dict]:
+# ============================================
+# GEMINI ANALYSIS FUNCTIONS
+# ============================================
+
+def analyze_with_gemini_live(api_key: str, text: str) -> list[dict]:
     prompt = f"""You are a fact-checking web agent for uploaded PDFs.
 
 Your job is to:
@@ -471,11 +601,11 @@ For each item return:
 Use these exact verdict labels:
 - Verified = the claim matches current public evidence
 - Inaccurate = the claim is outdated, incomplete, or numerically off
-- False = reliable public evidence contradicts the claim or there is no credible support for a public factual claim
+- False = reliable public evidence contradicts the claim or there is no credible support
 - Unverified = the claim is private, resume-style, or not publicly provable
 
 Rules:
-- prioritize stats, dates, financial figures, technical details, rankings, company facts, population numbers, and research findings
+- prioritize stats, dates, financial figures, technical details, rankings, company facts
 - prefer official, primary, or highly authoritative sources
 - include 1 to {MAX_SOURCES} short source labels or URLs when available
 - if a claim is wrong or outdated, include the corrected real fact in correct_fact
@@ -487,8 +617,7 @@ DOCUMENT:
     data = gemini_generate(api_key, prompt, schema=ANALYSIS_SCHEMA, use_search=True, temperature=0.0)
     return normalize_analysis_results(parse_json_text(response_text(data)))
 
-
-def analyze_document_model_only(api_key: str, text: str) -> list[dict]:
+def analyze_with_gemini_model_only(api_key: str, text: str) -> list[dict]:
     prompt = f"""You are a document analysis assistant.
 
 Read the uploaded PDF text and extract up to {MAX_CLAIMS} explicit factual claims worth reviewing.
@@ -513,24 +642,78 @@ DOCUMENT:
     data = gemini_generate(api_key, prompt, schema=ANALYSIS_SCHEMA, temperature=0.0)
     return normalize_analysis_results(parse_json_text(response_text(data)))
 
+# ============================================
+# ANTHROPIC (CLAUDE) ANALYSIS FUNCTIONS
+# ============================================
 
-def build_unverified_results(claims: list[dict], reason: str) -> list[dict]:
-    results = []
-    for claim in claims:
-        results.append(
-            {
-                "id": claim["id"],
-                "claim": claim["claim"],
-                "category": claim["category"],
-                "verdict": "Unverified",
-                "confidence": "Low",
-                "explanation": reason,
-                "correct_fact": None,
-                "sources": [],
-            }
-        )
-    return results
+def analyze_with_claude_live(api_key: str, text: str) -> list[dict]:
+    prompt = f"""You are a fact-checking web agent for uploaded PDFs.
 
+Your job is to:
+1. Extract up to {MAX_CLAIMS} explicit factual claims from the document that are worth checking on the public web.
+2. Use live web search to verify each claim against current information.
+3. Return one JSON array only.
+
+For each item return:
+- claim
+- category
+- verdict
+- confidence
+- explanation
+- correct_fact
+- sources
+
+Use these exact verdict labels:
+- Verified = the claim matches current public evidence
+- Inaccurate = the claim is outdated, incomplete, or numerically off
+- False = reliable public evidence contradicts the claim or there is no credible support
+- Unverified = the claim is private, resume-style, or not publicly provable
+
+Rules:
+- prioritize stats, dates, financial figures, technical details, rankings, company facts
+- prefer official, primary, or highly authoritative sources
+- include 1 to {MAX_SOURCES} short source labels or URLs when available
+- if a claim is wrong or outdated, include the corrected real fact in correct_fact
+- do not return more than {MAX_CLAIMS} claims
+
+Return ONLY valid JSON array. Do not include any other text.
+
+DOCUMENT:
+{text[:DOCUMENT_CHAR_LIMIT]}
+"""
+    response_text_content = anthropic_generate(api_key, prompt, use_search=True, temperature=0.0)
+    return normalize_analysis_results(parse_json_text(response_text_content))
+
+def analyze_with_claude_model_only(api_key: str, text: str) -> list[dict]:
+    prompt = f"""You are a document analysis assistant.
+
+Read the uploaded PDF text and extract up to {MAX_CLAIMS} explicit factual claims worth reviewing.
+For each claim:
+- assign a short category
+- assign one verdict using exactly one of these labels: Verified, Inaccurate, False, or Unverified
+- assign one confidence: High, Medium, or Low
+- write a short explanation
+- include a corrected fact when the claim is wrong or outdated, otherwise null
+- include a short list of sources only when you are highly confident; otherwise use []
+
+Important rules:
+- analyze only claims that actually appear in the document
+- use your general model knowledge and the uploaded document
+- do not use live web search in this fallback mode
+- if you are unsure, prefer Unverified
+- do not return more than {MAX_CLAIMS} items
+
+Return ONLY valid JSON array. Do not include any other text.
+
+DOCUMENT:
+{text[:DOCUMENT_CHAR_LIMIT]}
+"""
+    response_text_content = anthropic_generate(api_key, prompt, use_search=False, temperature=0.0)
+    return normalize_analysis_results(parse_json_text(response_text_content))
+
+# ============================================
+# UI FUNCTIONS
+# ============================================
 
 def badge_html(verdict: str) -> str:
     mapping = {
@@ -541,7 +724,6 @@ def badge_html(verdict: str) -> str:
     }
     cls, label = mapping.get(verdict, ("unverified", verdict))
     return f'<span class="badge badge-{cls}">{label}</span>'
-
 
 def render_claim_card(result: dict) -> None:
     verdict = result.get("verdict", "Unverified")
@@ -594,30 +776,95 @@ def render_claim_card(result: dict) -> None:
         unsafe_allow_html=True,
     )
 
+# ============================================
+# MAIN APP
+# ============================================
 
+# Sidebar for API Configuration
+with st.sidebar:
+    st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
+    st.markdown("### 🔑 API Configuration")
+    
+    # API Provider Selection
+    api_provider = st.selectbox(
+        "Select AI Provider",
+        ["Gemini (Google)", "Anthropic (Claude)"],
+        help="Gemini is free with limitations. Claude has better web search."
+    )
+    
+    st.markdown("---")
+    
+    # Gemini API Key
+    if api_provider == "Gemini (Google)":
+        gemini_key = get_gemini_key()
+        if not gemini_key:
+            gemini_key = st.text_input(
+                "🔐 Gemini API Key",
+                type="password",
+                help="Get from https://aistudio.google.com/app/apikey"
+            )
+        if gemini_key:
+            st.success("✅ Gemini API key configured")
+        else:
+            st.warning("⚠️ Please enter Gemini API key")
+    
+    # Anthropic API Key
+    else:
+        anthropic_key = get_anthropic_key()
+        if not anthropic_key:
+            anthropic_key = st.text_input(
+                "🔐 Anthropic API Key",
+                type="password",
+                help="Get from https://console.anthropic.com/"
+            )
+        if anthropic_key:
+            st.success("✅ Anthropic API key configured")
+        else:
+            st.warning("⚠️ Please enter Anthropic API key")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Optional Google Search API (Backup)
+    st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
+    st.markdown("### 🔍 Optional: Google Search API")
+    st.caption("Better fact-checking results with custom search")
+    
+    use_google_backup = st.checkbox("Enable Google Search backup", value=False)
+    if use_google_backup:
+        google_key = get_google_api_key()
+        if not google_key:
+            google_key = st.text_input("Google API Key", type="password")
+        
+        google_cse = get_google_cse_id()
+        if not google_cse:
+            google_cse = st.text_input("Google CSE ID")
+        
+        if google_key and google_cse:
+            st.success("✅ Google Search configured")
+        else:
+            st.info("Get from https://programmablesearchengine.google.com/")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Main area
 col_upload, col_info = st.columns([2, 1])
 
 with col_upload:
-    api_key = get_configured_api_key()
-    if api_key:
-        st.success("Server-side Gemini configuration is ready.")
-    else:
-        st.warning("Server-side Gemini key is missing. The app will use local fallback mode.")
     uploaded_file = st.file_uploader("📄 Upload PDF", type=["pdf"])
 
 with col_info:
     st.markdown(
         f"""
     <div class="stat-box" style="margin-bottom:0.8rem;">
-      <div class="stat-num" style="color:#6366f1;">3</div>
-      <div class="stat-label">Flow Steps</div>
+      <div class="stat-num" style="color:#6366f1;">4</div>
+      <div class="stat-label">Simple Steps</div>
     </div>
     <div style="background:#1e2130;border-radius:10px;padding:1rem;border:1px solid #2d3748;font-size:0.82rem;color:#94a3b8;">
-      <b style="color:#e2e8f0;">What this version does</b><br><br>
-      📄 Upload PDF<br>
-      🌐 Try live web fact-checking first<br>
-      📊 Show verdict report<br><br>
-      <span style="color:#cbd5e1;">Model: {html.escape(GEMINI_MODEL)}</span>
+      <b style="color:#e2e8f0;">Features</b><br><br>
+      ✅ Multi-API Support (Gemini + Claude)<br>
+      ✅ Live Web Fact-Checking<br>
+      ✅ PDF Text Extraction<br>
+      ✅ JSON Report Export<br><br>
+      <span style="color:#cbd5e1;">Current: {api_provider}</span>
     </div>
     """,
         unsafe_allow_html=True,
@@ -629,35 +876,48 @@ if run:
     if not uploaded_file:
         st.error("Please upload a PDF file.")
         st.stop()
-
+    
+    # Check API key based on provider
+    if api_provider == "Gemini (Google)":
+        if 'gemini_key' not in locals() or not gemini_key:
+            st.error("Please enter your Gemini API key in the sidebar.")
+            st.stop()
+        api_key = gemini_key
+    else:
+        if 'anthropic_key' not in locals() or not anthropic_key:
+            st.error("Please enter your Anthropic API key in the sidebar.")
+            st.stop()
+        api_key = anthropic_key
+    
     with st.spinner("📄 Extracting text from PDF..."):
         try:
             pdf_text = extract_text_from_pdf(uploaded_file)
         except Exception as exc:
             st.error(f"PDF read error: {exc}")
             st.stop()
-
+    
     if not pdf_text.strip():
         st.error("No text found in PDF. Try a text-based PDF.")
         st.stop()
-
+    
     st.success(f"✅ Extracted {len(pdf_text):,} characters from PDF")
-
+    
     analysis_mode = "local_fallback"
     analysis_error = None
-
-    if api_key:
-        with st.spinner("🌐 Fact-checking claims against the live web..."):
+    
+    # Analyze based on selected provider
+    if api_provider == "Gemini (Google)":
+        with st.spinner("🌐 Fact-checking with Gemini + Live Web Search..."):
             try:
-                results = analyze_document_live(api_key, pdf_text)
+                results = analyze_with_gemini_live(api_key, pdf_text)
                 analysis_mode = "gemini_live_web"
             except Exception as exc:
                 analysis_error = str(exc)
-
+        
         if analysis_error:
-            with st.spinner("🤖 Falling back to model-only analysis..."):
+            with st.spinner("🤖 Falling back to Gemini model-only analysis..."):
                 try:
-                    results = analyze_document_model_only(api_key, pdf_text)
+                    results = analyze_with_gemini_model_only(api_key, pdf_text)
                     analysis_mode = "gemini_model_only"
                 except Exception as exc:
                     analysis_error = str(exc)
@@ -670,48 +930,64 @@ if run:
                         f"AI analysis unavailable: {analysis_error}",
                     )
     else:
-        with st.spinner("🧩 Extracting claim candidates locally..."):
-            local_claims = extract_claims_locally(pdf_text)
-            if not local_claims:
-                st.warning("No verifiable claims were found in this PDF.")
-                st.stop()
-            results = build_unverified_results(
-                local_claims,
-                "AI analysis unavailable because no server-side Gemini key is configured.",
-            )
-
-    if analysis_mode == "gemini_live_web":
-        st.info(
-            f"🎯 Live web fact-check completed for **{len(results)}** claims. "
-            "This mode is best for public stats, dates, financial facts, and technical claims."
-        )
-    elif analysis_mode == "gemini_model_only":
-        st.warning(
-            "Live web fact-checking was unavailable, so the app used Gemini's document analysis fallback. "
-            "Public claims may still be useful, but this is weaker than live web verification."
-        )
+        # Anthropic (Claude)
+        with st.spinner("🌐 Fact-checking with Claude + Live Web Search..."):
+            try:
+                results = analyze_with_claude_live(api_key, pdf_text)
+                analysis_mode = "anthropic_live_web"
+            except Exception as exc:
+                analysis_error = str(exc)
+        
         if analysis_error:
-            st.caption(f"Live-web fallback reason: {analysis_error}")
-    else:
+            with st.spinner("🤖 Falling back to Claude model-only analysis..."):
+                try:
+                    results = analyze_with_claude_model_only(api_key, pdf_text)
+                    analysis_mode = "anthropic_model_only"
+                except Exception as exc:
+                    analysis_error = str(exc)
+                    local_claims = extract_claims_locally(pdf_text)
+                    if not local_claims:
+                        st.error(f"Analysis failed: {analysis_error}")
+                        st.stop()
+                    results = build_unverified_results(
+                        local_claims,
+                        f"AI analysis unavailable: {analysis_error}",
+                    )
+    
+    # Show mode info
+    if analysis_mode in ["gemini_live_web", "anthropic_live_web"]:
+        st.info(
+            f"🎯 Live web fact-check completed for **{len(results)}** claims using {api_provider}. "
+            "Best for public stats, dates, and factual claims."
+        )
+    elif analysis_mode in ["gemini_model_only", "anthropic_model_only"]:
         st.warning(
-            "AI analysis was unavailable, so the app used local fallback mode. "
-            "Claims are extracted from the PDF, but they are marked unverified."
+            f"Live web fact-checking was unavailable, using {api_provider} fallback mode. "
+            "Public claims may still be useful, but less accurate than live web verification."
         )
         if analysis_error:
             st.caption(f"Fallback reason: {analysis_error}")
-
+    else:
+        st.warning(
+            "AI analysis unavailable, using local fallback. "
+            "Claims extracted but marked unverified."
+        )
+        if analysis_error:
+            st.caption(f"Fallback reason: {analysis_error}")
+    
+    # Display results
     st.markdown("---")
     st.markdown("## 📊 Analysis Report")
-    st.caption(f"Mode: {ANALYSIS_MODE_LABELS[analysis_mode]}")
+    st.caption(f"Mode: {ANALYSIS_MODE_LABELS.get(analysis_mode, analysis_mode)}")
     st.markdown(f"*Generated: {datetime.now().strftime('%B %d, %Y at %H:%M')}*")
-
+    
     counts = {"Verified": 0, "Inaccurate": 0, "False": 0, "Unverified": 0}
     for result in results:
         verdict = result.get("verdict", "Unverified")
         if verdict not in counts:
             verdict = "Unverified"
         counts[verdict] += 1
-
+    
     c1, c2, c3, c4 = st.columns(4)
     for col, (label, color, icon) in zip(
         [c1, c2, c3, c4],
@@ -732,7 +1008,7 @@ if run:
             """,
                 unsafe_allow_html=True,
             )
-
+    
     st.markdown("### 🔎 Detailed Results")
     tabs = st.tabs(["All Claims", "✅ Verified", "⚠️ Inaccurate", "❌ False", "❓ Unverified"])
     groups = {
@@ -742,18 +1018,18 @@ if run:
         "❌ False": [item for item in results if item["verdict"] == "False"],
         "❓ Unverified": [item for item in results if item["verdict"] == "Unverified"],
     }
-
+    
     for tab, (_, items) in zip(tabs, groups.items()):
         with tab:
             if not items:
                 st.info("No claims in this category.")
             for item in items:
                 render_claim_card(item)
-
+    
     report_json = json.dumps(
         {
             "generated_at": datetime.now().isoformat(),
-            "model": GEMINI_MODEL,
+            "api_provider": api_provider,
             "mode": analysis_mode,
             "error": analysis_error,
             "summary": counts,
