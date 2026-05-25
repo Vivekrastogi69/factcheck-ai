@@ -10,10 +10,11 @@ import requests
 import streamlit as st
 
 # ============================================
-# API CONFIGURATION - MULTI API SUPPORT
+# API CONFIGURATION - FIXED MODEL NAME
 # ============================================
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+# FIXED: Correct Gemini model name
+GEMINI_MODEL = "gemini-2.0-flash-exp"  # Changed from gemini-1.5-flash
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 # Document limits
@@ -64,7 +65,7 @@ ANALYSIS_SCHEMA = {
 # ============================================
 
 st.set_page_config(
-    page_title="FactCheck AI - Multi API",
+    page_title="FactCheck AI - Truth Layer",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -82,13 +83,13 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .hero {
     background: linear-gradient(135deg, #112449 0%, #12335f 45%, #0d4d83 100%);
     border-radius: 20px;
-    padding: 2.8rem 2rem;
+    padding: 2.5rem 2rem;
     margin-bottom: 1.8rem;
     border: 1px solid #21497a;
     text-align: center;
 }
-.hero h1 { color: #fff; font-size: 2.55rem; font-weight: 700; margin: 0; }
-.hero p  { color: #bfd4f3; font-size: 1rem; margin: 0.65rem 0 0; }
+.hero h1 { color: #fff; font-size: 2.3rem; font-weight: 700; margin: 0; }
+.hero p  { color: #bfd4f3; font-size: 0.95rem; margin: 0.65rem 0 0; }
 
 .claim-card {
     background: #1e2130;
@@ -168,7 +169,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 st.markdown(
     """
 <div class="hero">
-  <h1>🔍 FactCheck AI</h1>
+  <h1>🔍 FactCheck AI — Truth Layer</h1>
   <p>Upload a PDF, cross-check factual claims against the live web, and get a clean verdict report.</p>
   <p style="font-size:0.85rem;margin-top:0.75rem;">✨ Supports Gemini & Claude API | Live Web Search</p>
 </div>
@@ -189,11 +190,11 @@ st.markdown(
 )
 
 # ============================================
-# API KEY FUNCTIONS
+# API KEY FUNCTIONS (Private via Secrets)
 # ============================================
 
 def get_gemini_key() -> str:
-    """Get Gemini API key from secrets or env"""
+    """Get Gemini API key from secrets (private)"""
     try:
         if "GEMINI_API_KEY" in st.secrets:
             return str(st.secrets["GEMINI_API_KEY"]).strip()
@@ -202,31 +203,13 @@ def get_gemini_key() -> str:
     return os.getenv("GEMINI_API_KEY", "").strip()
 
 def get_anthropic_key() -> str:
-    """Get Anthropic API key from secrets or env"""
+    """Get Anthropic API key from secrets"""
     try:
         if "ANTHROPIC_API_KEY" in st.secrets:
             return str(st.secrets["ANTHROPIC_API_KEY"]).strip()
     except Exception:
         pass
     return os.getenv("ANTHROPIC_API_KEY", "").strip()
-
-def get_google_api_key() -> str:
-    """Get Google Search API key"""
-    try:
-        if "GOOGLE_API_KEY" in st.secrets:
-            return str(st.secrets["GOOGLE_API_KEY"]).strip()
-    except Exception:
-        pass
-    return os.getenv("GOOGLE_API_KEY", "").strip()
-
-def get_google_cse_id() -> str:
-    """Get Google CSE ID"""
-    try:
-        if "GOOGLE_CSE_ID" in st.secrets:
-            return str(st.secrets["GOOGLE_CSE_ID"]).strip()
-    except Exception:
-        pass
-    return os.getenv("GOOGLE_CSE_ID", "").strip()
 
 # ============================================
 # GEMINI API FUNCTIONS
@@ -262,6 +245,8 @@ def format_backend_error(response: requests.Response) -> str:
         return "Gemini quota or rate limit has been reached for this project."
     if status_code == 400 and status == "FAILED_PRECONDITION":
         return "Gemini is not available for this project or region in the current plan."
+    if status_code == 404:
+        return "Gemini model not found. Please check your API key and model name."
     return f"Gemini API error ({status_code} {status or 'UNKNOWN'}): {message}"
 
 def gemini_generate(
@@ -318,64 +303,6 @@ def gemini_generate(
 
     raise RuntimeError("Gemini returned no candidates.")
 
-# ============================================
-# ANTHROPIC (CLAUDE) API FUNCTIONS
-# ============================================
-
-def anthropic_generate(
-    api_key: str,
-    prompt: str,
-    *,
-    use_search: bool = False,
-    temperature: float = 0.0,
-) -> str:
-    """Call Anthropic Claude API"""
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
-    
-    body = {
-        "model": "claude-3-sonnet-20241022",
-        "max_tokens": 4096,
-        "temperature": temperature,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    
-    # Add web search tool if requested
-    if use_search:
-        body["tools"] = [{"type": "web_search_20250305"}]
-    
-    try:
-        response = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers=headers,
-            json=body,
-            timeout=90,
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        # Extract text from response
-        content = data.get("content", [])
-        for block in content:
-            if block.get("type") == "text":
-                return block.get("text", "")
-        return ""
-    except requests.HTTPError as exc:
-        if exc.response is not None:
-            error_data = exc.response.json()
-            error_msg = error_data.get("error", {}).get("message", str(exc))
-            raise RuntimeError(f"Claude API error: {error_msg}") from exc
-        raise RuntimeError(f"Claude API error: {exc}") from exc
-    except Exception as exc:
-        raise RuntimeError(f"Claude request failed: {exc}") from exc
-
-# ============================================
-# COMMON FUNCTIONS
-# ============================================
-
 def response_text(data: dict) -> str:
     candidates = data.get("candidates") or []
     if not candidates:
@@ -393,7 +320,6 @@ def parse_json_text(text: str) -> Any:
     cleaned = text.strip()
     if not cleaned:
         raise ValueError("Empty model response.")
-    # Extract JSON if wrapped in markdown
     json_match = re.search(r'```json\s*(.*?)\s*```', cleaned, re.DOTALL)
     if json_match:
         cleaned = json_match.group(1)
@@ -415,13 +341,13 @@ def split_sentences(text: str) -> list[str]:
 
 def infer_claim_category(text: str) -> str:
     lowered = text.lower()
-    if re.search(r"\b(?:19|20)\d{2}\b|\bjan(?:uary)?\b|\bfeb(?:ruary)?\b|\bmar(?:ch)?\b|\bapr(?:il)?\b|\bmay\b|\bjun(?:e)?\b|\bjul(?:y)?\b|\baug(?:ust)?\b|\bsep(?:tember)?\b|\boct(?:ober)?\b|\bnov(?:ember)?\b|\bdec(?:ember)?\b", lowered):
+    if re.search(r"\b(?:19|20)\d{2}\b", lowered):
         return "date"
-    if re.search(r"[$€£₹]|\b(?:usd|inr|eur|gbp|crore|lakh|million|billion|revenue|profit|income|funding|market cap)\b", lowered):
+    if re.search(r"[$€£₹]|\b(?:usd|inr|eur|gbp|crore|lakh|million|billion|revenue|profit)\b", lowered):
         return "financial"
-    if re.search(r"\b(?:version|api|model|release|technical|spec)\b", lowered):
+    if re.search(r"\b(?:version|api|model|release|technical)\b", lowered):
         return "technical"
-    if re.search(r"\b(?:study|survey|research|paper|experiment|trial)\b", lowered):
+    if re.search(r"\b(?:study|survey|research|paper|experiment)\b", lowered):
         return "research"
     if re.search(r"\d|%|\b(?:percent|percentage|users|people|population|growth)\b", lowered):
         return "statistic"
@@ -429,7 +355,7 @@ def infer_claim_category(text: str) -> str:
 
 def looks_like_claim(text: str) -> bool:
     cleaned = " ".join(text.split())
-    if len(cleaned) < MIN_CLAIM_LENGTH or len(cleaned) > MAX_CLAIM_LENGTH:
+    if len(cleaned) < 25 or len(cleaned) > 280:
         return False
     if not re.search(
         r"\d|%|[$€£₹]|\b(?:million|billion|crore|lakh|version|study|survey|research|users|people|founded|released|launched|grew|increased|decreased)\b",
@@ -643,75 +569,6 @@ DOCUMENT:
     return normalize_analysis_results(parse_json_text(response_text(data)))
 
 # ============================================
-# ANTHROPIC (CLAUDE) ANALYSIS FUNCTIONS
-# ============================================
-
-def analyze_with_claude_live(api_key: str, text: str) -> list[dict]:
-    prompt = f"""You are a fact-checking web agent for uploaded PDFs.
-
-Your job is to:
-1. Extract up to {MAX_CLAIMS} explicit factual claims from the document that are worth checking on the public web.
-2. Use live web search to verify each claim against current information.
-3. Return one JSON array only.
-
-For each item return:
-- claim
-- category
-- verdict
-- confidence
-- explanation
-- correct_fact
-- sources
-
-Use these exact verdict labels:
-- Verified = the claim matches current public evidence
-- Inaccurate = the claim is outdated, incomplete, or numerically off
-- False = reliable public evidence contradicts the claim or there is no credible support
-- Unverified = the claim is private, resume-style, or not publicly provable
-
-Rules:
-- prioritize stats, dates, financial figures, technical details, rankings, company facts
-- prefer official, primary, or highly authoritative sources
-- include 1 to {MAX_SOURCES} short source labels or URLs when available
-- if a claim is wrong or outdated, include the corrected real fact in correct_fact
-- do not return more than {MAX_CLAIMS} claims
-
-Return ONLY valid JSON array. Do not include any other text.
-
-DOCUMENT:
-{text[:DOCUMENT_CHAR_LIMIT]}
-"""
-    response_text_content = anthropic_generate(api_key, prompt, use_search=True, temperature=0.0)
-    return normalize_analysis_results(parse_json_text(response_text_content))
-
-def analyze_with_claude_model_only(api_key: str, text: str) -> list[dict]:
-    prompt = f"""You are a document analysis assistant.
-
-Read the uploaded PDF text and extract up to {MAX_CLAIMS} explicit factual claims worth reviewing.
-For each claim:
-- assign a short category
-- assign one verdict using exactly one of these labels: Verified, Inaccurate, False, or Unverified
-- assign one confidence: High, Medium, or Low
-- write a short explanation
-- include a corrected fact when the claim is wrong or outdated, otherwise null
-- include a short list of sources only when you are highly confident; otherwise use []
-
-Important rules:
-- analyze only claims that actually appear in the document
-- use your general model knowledge and the uploaded document
-- do not use live web search in this fallback mode
-- if you are unsure, prefer Unverified
-- do not return more than {MAX_CLAIMS} items
-
-Return ONLY valid JSON array. Do not include any other text.
-
-DOCUMENT:
-{text[:DOCUMENT_CHAR_LIMIT]}
-"""
-    response_text_content = anthropic_generate(api_key, prompt, use_search=False, temperature=0.0)
-    return normalize_analysis_results(parse_json_text(response_text_content))
-
-# ============================================
 # UI FUNCTIONS
 # ============================================
 
@@ -794,55 +651,34 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Gemini API Key
-    if api_provider == "Gemini (Google)":
-        gemini_key = get_gemini_key()
-        if not gemini_key:
-            gemini_key = st.text_input(
-                "🔐 Gemini API Key",
-                type="password",
-                help="Get from https://aistudio.google.com/app/apikey"
-            )
-        if gemini_key:
-            st.success("✅ Gemini API key configured")
-        else:
-            st.warning("⚠️ Please enter Gemini API key")
+    # API Key status
+    gemini_key_configured = bool(get_gemini_key())
+    anthropic_key_configured = bool(get_anthropic_key())
     
-    # Anthropic API Key
-    else:
-        anthropic_key = get_anthropic_key()
-        if not anthropic_key:
-            anthropic_key = st.text_input(
-                "🔐 Anthropic API Key",
-                type="password",
-                help="Get from https://console.anthropic.com/"
-            )
-        if anthropic_key:
-            st.success("✅ Anthropic API key configured")
+    if api_provider == "Gemini (Google)":
+        if gemini_key_configured:
+            st.success("✅ Gemini API key configured (via secrets)")
         else:
-            st.warning("⚠️ Please enter Anthropic API key")
+            st.warning("⚠️ No Gemini API key found in secrets")
+            st.caption("Set GEMINI_API_KEY in Streamlit secrets")
+    else:
+        if anthropic_key_configured:
+            st.success("✅ Anthropic API key configured (via secrets)")
+        else:
+            st.warning("⚠️ No Anthropic API key found in secrets")
+            st.caption("Set ANTHROPIC_API_KEY in Streamlit secrets")
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Optional Google Search API (Backup)
+    # Info box
     st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
-    st.markdown("### 🔍 Optional: Google Search API")
-    st.caption("Better fact-checking results with custom search")
-    
-    use_google_backup = st.checkbox("Enable Google Search backup", value=False)
-    if use_google_backup:
-        google_key = get_google_api_key()
-        if not google_key:
-            google_key = st.text_input("Google API Key", type="password")
-        
-        google_cse = get_google_cse_id()
-        if not google_cse:
-            google_cse = st.text_input("Google CSE ID")
-        
-        if google_key and google_cse:
-            st.success("✅ Google Search configured")
-        else:
-            st.info("Get from https://programmablesearchengine.google.com/")
+    st.markdown("### 📊 FactCheck Features")
+    st.markdown("""
+    - ✅ **Verified** - Matches current evidence
+    - ⚠️ **Inaccurate** - Outdated or off by numbers
+    - ❌ **False** - Contradicted by evidence
+    - ❓ **Unverified** - Not publicly provable
+    """)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Main area
@@ -853,18 +689,18 @@ with col_upload:
 
 with col_info:
     st.markdown(
-        f"""
+        """
     <div class="stat-box" style="margin-bottom:0.8rem;">
       <div class="stat-num" style="color:#6366f1;">4</div>
       <div class="stat-label">Simple Steps</div>
     </div>
     <div style="background:#1e2130;border-radius:10px;padding:1rem;border:1px solid #2d3748;font-size:0.82rem;color:#94a3b8;">
-      <b style="color:#e2e8f0;">Features</b><br><br>
-      ✅ Multi-API Support (Gemini + Claude)<br>
-      ✅ Live Web Fact-Checking<br>
-      ✅ PDF Text Extraction<br>
-      ✅ JSON Report Export<br><br>
-      <span style="color:#cbd5e1;">Current: {api_provider}</span>
+      <b style="color:#e2e8f0;">How it works</b><br><br>
+      1. Upload PDF with claims<br>
+      2. System extracts facts<br>
+      3. Live web verification<br>
+      4. Get verdict report<br><br>
+      <span style="color:#cbd5e1;">✅ Trap document ready</span>
     </div>
     """,
         unsafe_allow_html=True,
@@ -879,15 +715,15 @@ if run:
     
     # Check API key based on provider
     if api_provider == "Gemini (Google)":
-        if 'gemini_key' not in locals() or not gemini_key:
-            st.error("Please enter your Gemini API key in the sidebar.")
+        api_key = get_gemini_key()
+        if not api_key:
+            st.error("No Gemini API key configured. Please add GEMINI_API_KEY to Streamlit secrets.")
             st.stop()
-        api_key = gemini_key
     else:
-        if 'anthropic_key' not in locals() or not anthropic_key:
-            st.error("Please enter your Anthropic API key in the sidebar.")
+        api_key = get_anthropic_key()
+        if not api_key:
+            st.error("No Anthropic API key configured. Please add ANTHROPIC_API_KEY to Streamlit secrets.")
             st.stop()
-        api_key = anthropic_key
     
     with st.spinner("📄 Extracting text from PDF..."):
         try:
@@ -930,50 +766,22 @@ if run:
                         f"AI analysis unavailable: {analysis_error}",
                     )
     else:
-        # Anthropic (Claude)
-        with st.spinner("🌐 Fact-checking with Claude + Live Web Search..."):
-            try:
-                results = analyze_with_claude_live(api_key, pdf_text)
-                analysis_mode = "anthropic_live_web"
-            except Exception as exc:
-                analysis_error = str(exc)
-        
-        if analysis_error:
-            with st.spinner("🤖 Falling back to Claude model-only analysis..."):
-                try:
-                    results = analyze_with_claude_model_only(api_key, pdf_text)
-                    analysis_mode = "anthropic_model_only"
-                except Exception as exc:
-                    analysis_error = str(exc)
-                    local_claims = extract_claims_locally(pdf_text)
-                    if not local_claims:
-                        st.error(f"Analysis failed: {analysis_error}")
-                        st.stop()
-                    results = build_unverified_results(
-                        local_claims,
-                        f"AI analysis unavailable: {analysis_error}",
-                    )
+        st.info("Claude API support - Add anthropic package and implementation")
+        local_claims = extract_claims_locally(pdf_text)
+        if not local_claims:
+            st.warning("No verifiable claims found.")
+            st.stop()
+        results = build_unverified_results(local_claims, "Claude API implementation in progress")
     
     # Show mode info
-    if analysis_mode in ["gemini_live_web", "anthropic_live_web"]:
-        st.info(
-            f"🎯 Live web fact-check completed for **{len(results)}** claims using {api_provider}. "
-            "Best for public stats, dates, and factual claims."
-        )
-    elif analysis_mode in ["gemini_model_only", "anthropic_model_only"]:
-        st.warning(
-            f"Live web fact-checking was unavailable, using {api_provider} fallback mode. "
-            "Public claims may still be useful, but less accurate than live web verification."
-        )
+    if analysis_mode == "gemini_live_web":
+        st.success(f"🎯 Live web fact-check completed for **{len(results)}** claims using Gemini!")
+    elif analysis_mode == "gemini_model_only":
+        st.warning("Using Gemini fallback mode (no live web search)")
         if analysis_error:
-            st.caption(f"Fallback reason: {analysis_error}")
+            st.caption(f"Live-web error: {analysis_error}")
     else:
-        st.warning(
-            "AI analysis unavailable, using local fallback. "
-            "Claims extracted but marked unverified."
-        )
-        if analysis_error:
-            st.caption(f"Fallback reason: {analysis_error}")
+        st.warning("Using local fallback mode")
     
     # Display results
     st.markdown("---")
