@@ -4,360 +4,317 @@ import requests
 import json
 import re
 import time
-from datetime import datetime
-import os
+import html as html_lib
 
-# ============================================
-# API KEYS (Consider using st.secrets for production)
-# ============================================
-GROQ_API_KEY = "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"
+GROQ_API_KEY   = "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"
 SERPER_API_KEY = "c04f1c3f9bcd7ef89ffe4e6264e672901cd94112"
+GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL     = "llama-3.3-70b-versatile"
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
-
-st.set_page_config(page_title="FactCheck AI", page_icon="✅", layout="wide")
+st.set_page_config(page_title="FactCheck AI", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0f0c29, #1a1a4a, #24243e); color: white; }
-.hero { text-align: center; padding: 2rem; background: rgba(255,255,255,0.05); border-radius: 30px; margin-bottom: 2rem; }
-.hero h1 { font-size: 2.5rem; background: linear-gradient(135deg, #fff, #6366f1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.claim-card { background: rgba(255,255,255,0.08); border-radius: 16px; padding: 1rem; margin-bottom: 1rem; border-left: 4px solid; }
-.verified { border-left-color: #10b981; }
-.inaccurate { border-left-color: #f59e0b; }
-.false { border-left-color: #ef4444; }
-.unverified { border-left-color: #6366f1; }
-.stat-card { background: rgba(255,255,255,0.08); border-radius: 20px; padding: 1rem; text-align: center; }
-.stat-number { font-size: 2rem; font-weight: 800; }
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+html,body,[class*="css"]{font-family:'Space Grotesk',sans-serif!important;}
+.stApp{background:#080B14;color:#E2E8F0;}
+[data-testid="stSidebar"]{background:#0D1117!important;border-right:1px solid #1E2D3D!important;}
+.hero-section{background:linear-gradient(135deg,#0D1117 0%,#111827 50%,#0D1117 100%);border:1px solid #1E2D3D;border-radius:20px;padding:3rem 2rem;text-align:center;margin-bottom:2rem;position:relative;overflow:hidden;}
+.hero-section::before{content:'';position:absolute;top:-50%;left:50%;transform:translateX(-50%);width:600px;height:300px;background:radial-gradient(ellipse,rgba(99,102,241,0.15) 0%,transparent 70%);pointer-events:none;}
+.hero-badge{display:inline-block;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#818CF8;padding:0.3rem 1rem;border-radius:100px;font-size:0.75rem;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:1rem;}
+.hero-title{font-size:3rem;font-weight:700;background:linear-gradient(135deg,#FFFFFF 0%,#818CF8 50%,#C084FC 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0.5rem 0;line-height:1.1;}
+.hero-sub{color:#64748B;font-size:1rem;margin-top:0.5rem;}
+.stButton>button{background:linear-gradient(135deg,#6366F1,#8B5CF6)!important;color:white!important;border:none!important;border-radius:12px!important;padding:0.75rem 2rem!important;font-family:'Space Grotesk',sans-serif!important;font-size:1rem!important;font-weight:600!important;letter-spacing:0.02em!important;box-shadow:0 4px 24px rgba(99,102,241,0.3)!important;}
+.stats-container{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin:1.5rem 0;}
+.stat-box{background:#0D1117;border:1px solid #1E2D3D;border-radius:16px;padding:1.25rem;text-align:center;position:relative;overflow:hidden;}
+.stat-box::before{content:'';position:absolute;inset:0;opacity:0.05;border-radius:16px;}
+.stat-box.verified::before{background:#10B981;}
+.stat-box.inaccurate::before{background:#F59E0B;}
+.stat-box.false::before{background:#EF4444;}
+.stat-box.unverified::before{background:#6366F1;}
+.stat-num{font-size:2.5rem;font-weight:700;line-height:1;margin-bottom:0.25rem;}
+.stat-num.verified{color:#10B981;}
+.stat-num.inaccurate{color:#F59E0B;}
+.stat-num.false{color:#EF4444;}
+.stat-num.unverified{color:#818CF8;}
+.stat-label{font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:#475569;font-weight:600;}
+.claim-card{background:#0D1117;border:1px solid #1E2D3D;border-radius:16px;padding:1.5rem;margin-bottom:1rem;border-left:4px solid;}
+.claim-card.verified{border-left-color:#10B981;}
+.claim-card.inaccurate{border-left-color:#F59E0B;}
+.claim-card.false{border-left-color:#EF4444;}
+.claim-card.unverified{border-left-color:#6366F1;}
+.verdict-pill{display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.9rem;border-radius:100px;font-size:0.75rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:0.75rem;}
+.pill-verified{background:rgba(16,185,129,0.1);color:#10B981;border:1px solid rgba(16,185,129,0.3);}
+.pill-inaccurate{background:rgba(245,158,11,0.1);color:#F59E0B;border:1px solid rgba(245,158,11,0.3);}
+.pill-false{background:rgba(239,68,68,0.1);color:#EF4444;border:1px solid rgba(239,68,68,0.3);}
+.pill-unverified{background:rgba(99,102,241,0.1);color:#818CF8;border:1px solid rgba(99,102,241,0.3);}
+.claim-text{font-family:'JetBrains Mono',monospace;font-size:0.88rem;color:#E2E8F0;background:rgba(255,255,255,0.03);border:1px solid #1E2D3D;border-radius:8px;padding:0.75rem 1rem;margin-bottom:0.75rem;line-height:1.6;}
+.claim-exp{font-size:0.9rem;color:#94A3B8;line-height:1.7;}
+.correct-fact{margin-top:0.75rem;padding:0.6rem 1rem;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;font-size:0.85rem;color:#34D399;}
+.correct-label{font-weight:700;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;display:block;margin-bottom:0.2rem;color:#10B981;}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#10B981;box-shadow:0 0 8px #10B981;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.stProgress>div>div>div{background:linear-gradient(135deg,#6366F1,#8B5CF6)!important;}
 </style>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("## ✅ System Status")
-    st.success("✅ Groq AI — Active")
-    st.success("✅ Serper API — Live Search")
-    st.info("📌 Upload a PDF with claims in format: '1. \"Claim text\"'")
+    st.markdown("""
+    <div style="padding:1rem 0;">
+    <div style="font-size:1.2rem;font-weight:700;color:#E2E8F0;margin-bottom:1.5rem;">🔍 FactCheck AI</div>
+    <div style="margin-bottom:0.6rem;display:flex;align-items:center;gap:0.5rem;">
+        <span class="status-dot"></span>
+        <span style="font-size:0.85rem;color:#94A3B8;">Groq LLM — Active</span>
+    </div>
+    <div style="margin-bottom:1.5rem;display:flex;align-items:center;gap:0.5rem;">
+        <span class="status-dot"></span>
+        <span style="font-size:0.85rem;color:#94A3B8;">Serper Web Search — Live</span>
+    </div>
+    <div style="border-top:1px solid #1E2D3D;padding-top:1rem;">
+        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:#475569;margin-bottom:0.75rem;">How it works</div>
+        <div style="font-size:0.82rem;color:#64748B;line-height:1.8;">
+            1. 📄 Extract full claims from PDF<br>
+            2. 🌐 Live web search per claim<br>
+            3. 🤖 AI verdict + evidence<br>
+            4. 📊 Report with correct facts
+        </div>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("""
+<div class="hero-section">
+    <div class="hero-badge">AI-Powered Truth Layer</div>
+    <div class="hero-title">FactCheck AI</div>
+    <div class="hero-sub">Upload a PDF → Live Web Search → Instant Verdict on Every Claim</div>
+</div>
+""", unsafe_allow_html=True)
+
 
 def serper_search(query):
-    """Search the web using Serper API"""
     try:
-        url = "https://google.serper.dev/search"
-        headers = {"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"}
-        # Enhance search query for better results
-        enhanced_query = f"{query} statistics fact check"
-        payload = {"q": enhanced_query, "num": 5}
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            data = response.json()
-            results = []
-            
-            # Get organic search results
-            for item in data.get("organic", [])[:5]:
-                if item.get("snippet"):
-                    results.append(f"Source: {item.get('link', 'Unknown')}\n{item.get('snippet')}")
-            
-            # Also get knowledge graph if available
-            if data.get("knowledgeGraph"):
-                kg = data["knowledgeGraph"]
-                if kg.get("description"):
-                    results.append(f"Knowledge Graph: {kg.get('description')}")
-            
-            return "\n\n".join(results) if results else ""
-        else:
-            st.warning(f"Search API returned status {response.status_code}")
-            return ""
-    except Exception as e:
-        st.warning(f"Search error: {str(e)}")
+        r = requests.post("https://google.serper.dev/search",
+            headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
+            json={"q": query, "num": 6}, timeout=20)
+        r.raise_for_status()
+        return "\n\n".join(
+            f"[{i.get('title','')}] {i.get('snippet','')}"
+            for i in r.json().get("organic", [])[:6] if i.get("snippet")
+        )
+    except Exception:
         return ""
 
-def verify_single_claim(claim, retry_count=0):
-    """Verify single claim with proper handling and retries"""
-    
-    # Search web for the claim
+
+def call_groq(prompt, max_tokens=800, retries=4):
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    body = {"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0, "max_tokens": max_tokens}
+    delay = 4
+    for attempt in range(retries):
+        try:
+            r = requests.post(GROQ_API_URL, headers=headers, json=body, timeout=50)
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"]
+            if r.status_code == 429:
+                time.sleep(delay); delay = min(delay * 2, 30); continue
+            r.raise_for_status()
+        except requests.RequestException:
+            if attempt == retries - 1: raise
+            time.sleep(3)
+    return ""
+
+
+def extract_pdf_text(file):
+    with pdfplumber.open(file) as pdf:
+        return "\n".join(p.extract_text() or "" for p in pdf.pages)
+
+
+def extract_claims_ai(text):
+    prompt = f"""You are a claim extractor for a professional fact-checking system.
+
+Extract every SPECIFIC, VERIFIABLE factual claim from the document below.
+
+STRICT RULES:
+- Each claim MUST be a COMPLETE SENTENCE: subject + verb + exact figure/fact + context
+- GOOD example: "Tesla sold 2.5 million vehicles in 2024"
+- BAD example: "2.5 million" or "sold vehicles" (fragments are INVALID)
+- Include the full entity name in every claim (never orphaned numbers)
+- Keep exact numbers, dates, names as written in the document
+- Maximum 15 claims
+
+Return ONLY a valid JSON array of strings. No markdown. No backticks. No explanation.
+Example output: ["Tesla sold 2.5 million vehicles in 2024.", "Apple revenue in 2024 was $500 billion."]
+
+DOCUMENT:
+{text[:8000]}"""
+
+    raw = call_groq(prompt, max_tokens=1200)
+    match = re.search(r"\[.*?\]", raw, re.DOTALL)
+    if match:
+        try:
+            claims = json.loads(match.group())
+            good = []
+            for c in claims:
+                c = str(c).strip().strip('"')
+                if len(c) > 20 and not re.match(r'^\$?[\d,.]+ ?(million|billion|thousand)?$', c, re.I):
+                    good.append(c)
+            return good[:15]
+        except Exception:
+            pass
+
+    # Fallback regex
+    claims = []
+    for m in re.finditer(r'\d+\.\s*"?([A-Z][^.\n]{20,}\.?)"?', text):
+        c = m.group(1).strip().strip('"')
+        if c and c not in claims:
+            claims.append(c)
+    return claims[:15]
+
+
+def verify_claim(claim):
     search_results = serper_search(claim)
-    
-    prompt = f"""You are a professional fact-checker. Verify this claim using the search results provided.
+    prompt = f"""You are a professional fact-checker. Verify the claim using the search results.
 
 CLAIM: "{claim}"
 
-SEARCH RESULTS:
-{search_results if search_results else "No search results found. Use your knowledge to evaluate."}
+LIVE WEB SEARCH RESULTS:
+{search_results if search_results else "No results — use your training knowledge."}
 
-Based on the evidence, respond with ONLY a valid JSON object in this exact format:
-{{"verdict": "Verified/Inaccurate/False/Unverified", "confidence": "High/Medium/Low", "explanation": "Brief explanation of your reasoning", "correct_fact": "The correct fact if different from claim, otherwise null"}}
+VERDICT OPTIONS:
+- "Verified"   = accurate, confirmed by evidence
+- "Inaccurate" = right topic but wrong number/date/scale (outdated or exaggerated)
+- "False"      = clearly wrong with contradicting evidence
+- "Unverified" = cannot confirm or deny
 
-Rules for verdict:
-- Verified: Search results directly support the claim
-- Inaccurate: Claim is partially true but has errors (especially outdated stats)
-- False: Claim is completely wrong or contradicts search results  
-- Unverified: No clear evidence found
-
-Keep explanations concise (1-2 sentences)."""
+Respond ONLY with valid JSON. No markdown. No backticks:
+{{"verdict":"Verified|Inaccurate|False|Unverified","confidence":"High|Medium|Low","explanation":"One precise sentence citing evidence.","correct_fact":"Real accurate fact with context, or null"}}"""
 
     try:
-        headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-        body = {
-            "model": GROQ_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.1,  # Slight randomness but still focused
-            "max_tokens": 500
-        }
-        response = requests.post(GROQ_API_URL, headers=headers, json=body, timeout=45)
-        
-        if response.status_code == 200:
-            resp_text = response.json()["choices"][0]["message"]["content"]
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', resp_text, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group())
-                # Ensure all required fields exist
-                return {
-                    "verdict": result.get("verdict", "Unverified"),
-                    "confidence": result.get("confidence", "Low"),
-                    "explanation": result.get("explanation", "Could not verify"),
-                    "correct_fact": result.get("correct_fact")
-                }
-        elif response.status_code == 429 and retry_count < 3:
-            # Rate limit - wait and retry
-            time.sleep(5)
-            return verify_single_claim(claim, retry_count + 1)
-        else:
-            st.warning(f"API Error: {response.status_code}")
-            
-    except Exception as e:
-        st.warning(f"Verification error: {str(e)}")
-    
-    return {"verdict": "Unverified", "confidence": "Low", "explanation": "Verification failed", "correct_fact": None}
+        raw = call_groq(prompt, max_tokens=600)
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if match:
+            result = json.loads(match.group())
+            if result.get("verdict") not in ("Verified", "Inaccurate", "False", "Unverified"):
+                result["verdict"] = "Unverified"
+            return result
+    except Exception:
+        pass
 
-def extract_pdf_text(file):
-    """Extract text from PDF with better error handling"""
-    try:
-        text = ""
-        with pdfplumber.open(file) as pdf:
-            for page_num, page in enumerate(pdf.pages):
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-        return text.strip()
-    except Exception as e:
-        st.error(f"Error reading PDF: {str(e)}")
-        return ""
+    return {"verdict": "Unverified", "confidence": "Low",
+            "explanation": "Verification data could not be retrieved.", "correct_fact": None}
 
-def extract_claims(text):
-    """Extract claims in format 'N. "Claim"' and smart detection"""
-    claims = []
-    
-    # Pattern 1: Numbered claims with quotes
-    pattern1 = r'(\d+)\.\s*"([^"]+)"'
-    matches = re.findall(pattern1, text)
-    for num, claim in matches:
-        if len(claim) > 10:  # Filter out very short claims
-            claims.append(claim.strip())
-    
-    # Pattern 2: Claims with bullet points
-    pattern2 = r'[•\-*]\s*"([^"]+)"'
-    matches = re.findall(pattern2, text)
-    for claim in matches:
-        if len(claim) > 10:
-            claims.append(claim.strip())
-    
-    # Pattern 3: Look for statements with numbers (stats)
-    sentences = re.split(r'[.!?]+', text)
-    for sentence in sentences:
-        # Check if sentence contains numbers (potential stats)
-        if re.search(r'\d+(?:\.\d+)?%|\$\d+|\d+\s*(?:million|billion|percent|years?)', sentence):
-            sentence = sentence.strip()
-            if len(sentence) > 20 and len(sentence) < 200:
-                claims.append(sentence)
-    
-    # Remove duplicates and limit
-    claims = list(dict.fromkeys(claims))[:15]
-    return claims
 
-# ============================================
-# MAIN APPLICATION
-# ============================================
-st.markdown("""
-<div class="hero">
-    <h1>✅ FactCheck AI</h1>
-    <p>Upload a PDF → Extract Claims → Live Web Verification → Get Truth Report</p>
-</div>
-""", unsafe_allow_html=True)
+uploaded = st.file_uploader("Drop your PDF here or click to browse", type=["pdf"],
+    help="Any text-based PDF — reports, articles, marketing docs, research papers")
 
-# File uploader
-uploaded_file = st.file_uploader("Choose a PDF file to fact-check", type=["pdf"], help="Upload PDF containing claims in format: '1. \"Claim to verify\"'")
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    run = st.button("🔍  Run Fact-Check", use_container_width=True)
 
-# Process button
-if st.button("🔍 Start Fact-Checking", use_container_width=True, type="primary"):
-    if not uploaded_file:
-        st.error("❌ Please upload a PDF file first")
+if run:
+    if not uploaded:
+        st.error("Please upload a PDF file first.")
         st.stop()
-    
+
     start_time = time.time()
-    
-    # Step 1: Extract text from PDF
-    with st.spinner("📄 Reading PDF file..."):
-        pdf_text = extract_pdf_text(uploaded_file)
-    
-    if not pdf_text:
-        st.error("❌ Could not extract text from PDF. Please ensure the PDF contains readable text.")
+
+    with st.spinner("📄 Reading PDF…"):
+        raw_text = extract_pdf_text(uploaded)
+
+    if not raw_text.strip():
+        st.error("Could not extract text. The PDF may be a scanned image.")
         st.stop()
-    
-    st.success(f"✅ Extracted {len(pdf_text)} characters from PDF")
-    
-    # Step 2: Extract claims
-    with st.spinner("🔍 Identifying factual claims..."):
-        claims = extract_claims(pdf_text)
-    
+
+    st.success(f"✅ Extracted {len(raw_text):,} characters from **{uploaded.name}**")
+
+    with st.spinner("🧠 Identifying factual claims with AI…"):
+        claims = extract_claims_ai(raw_text)
+
     if not claims:
-        st.warning("⚠️ No claims found in the PDF. Please ensure claims are formatted as '1. \"Claim text\"' or contain statistical information.")
-        st.info("Example format:\n1. \"The global population reached 8 billion in 2022\"\n2. \"Tesla sold 500,000 vehicles in 2020\"")
+        st.error("No verifiable claims found.")
         st.stop()
-    
-    st.success(f"✅ Found {len(claims)} claims to verify")
-    
-    # Show extracted claims
-    with st.expander("📋 Extracted Claims", expanded=True):
-        for i, claim in enumerate(claims, 1):
-            st.write(f"**{i}.** {claim}")
-    
-    # Step 3: Verify each claim
-    st.markdown("---")
-    st.markdown("## 🔎 Verification in Progress")
-    
-    results = []
+
+    st.success(f"✅ Found **{len(claims)}** verifiable claims")
+
+    with st.expander(f"📋 View all {len(claims)} extracted claims"):
+        for i, c in enumerate(claims, 1):
+            st.markdown(
+                f"<div style='padding:0.4rem 0;color:#94A3B8;font-size:0.88rem;border-bottom:1px solid #1E2D3D'>"
+                f"<span style='color:#6366F1;font-weight:700;margin-right:0.5rem'>{i}.</span>"
+                f"{html_lib.escape(c)}</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='font-size:1.1rem;font-weight:700;color:#E2E8F0;margin:2rem 0 1rem 0;'>🌐 Verifying against live web data</div>",
+        unsafe_allow_html=True)
+
     progress_bar = st.progress(0)
-    status_text = st.empty()
-    
+    status_text  = st.empty()
+    results = []
+    counts  = {"Verified": 0, "Inaccurate": 0, "False": 0, "Unverified": 0}
+    stats_ph = st.empty()
+
+    def render_stats(c):
+        stats_ph.markdown(f"""
+        <div class="stats-container">
+            <div class="stat-box verified"><div class="stat-num verified">{c['Verified']}</div><div class="stat-label">✅ Verified</div></div>
+            <div class="stat-box inaccurate"><div class="stat-num inaccurate">{c['Inaccurate']}</div><div class="stat-label">⚠️ Inaccurate</div></div>
+            <div class="stat-box false"><div class="stat-num false">{c['False']}</div><div class="stat-label">❌ False</div></div>
+            <div class="stat-box unverified"><div class="stat-num unverified">{c['Unverified']}</div><div class="stat-label">❓ Unverified</div></div>
+        </div>""", unsafe_allow_html=True)
+
+    render_stats(counts)
+    claims_container = st.container()
+    all_cards_html = []
+
+    ICONS = {"Verified":"✅","Inaccurate":"⚠️","False":"❌","Unverified":"❓"}
+    PILL  = {"Verified":"pill-verified","Inaccurate":"pill-inaccurate","False":"pill-false","Unverified":"pill-unverified"}
+
     for i, claim in enumerate(claims):
-        status_text.info(f"🔄 Verifying claim {i+1}/{len(claims)}: {claim[:80]}...")
-        
-        result = verify_single_claim(claim)
+        status_text.markdown(
+            f"<div style='font-size:0.85rem;color:#64748B;margin-bottom:0.5rem'>"
+            f"Verifying {i+1}/{len(claims)}: <em>{html_lib.escape(claim[:80])}…</em></div>",
+            unsafe_allow_html=True)
+
+        result = verify_claim(claim)
         result["claim"] = claim
         results.append(result)
-        
-        progress_bar.progress((i + 1) / len(claims))
-        
-        # Add delay between API calls to avoid rate limiting
-        if i < len(claims) - 1:
-            time.sleep(2)
-    
-    status_text.empty()
-    elapsed_time = time.time() - start_time
-    
-    # Step 4: Display results
-    st.markdown("---")
-    st.markdown("## 📊 Fact-Check Report")
-    st.caption(f"⏱️ Completed in {elapsed_time:.1f} seconds")
-    
-    # Statistics
-    counts = {"Verified": 0, "Inaccurate": 0, "False": 0, "Unverified": 0}
-    for r in results:
-        counts[r.get("verdict", "Unverified")] += 1
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown(f"""
-        <div class='stat-card'>
-            <div class='stat-number' style='color:#10b981'>✅ {counts['Verified']}</div>
-            <div>Verified</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class='stat-card'>
-            <div class='stat-number' style='color:#f59e0b'>⚠️ {counts['Inaccurate']}</div>
-            <div>Inaccurate</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class='stat-card'>
-            <div class='stat-number' style='color:#ef4444'>❌ {counts['False']}</div>
-            <div>False</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown(f"""
-        <div class='stat-card'>
-            <div class='stat-number' style='color:#6366f1'>❓ {counts['Unverified']}</div>
-            <div>Unverified</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Display detailed results
-    st.markdown("### 📝 Detailed Analysis")
-    
-    for item in results:
-        verdict = item.get("verdict", "Unverified")
-        
-        # Set icon and color based on verdict
-        icon_map = {
-            "Verified": "✅",
-            "Inaccurate": "⚠️",
-            "False": "❌",
-            "Unverified": "❓"
-        }
-        icon = icon_map.get(verdict, "❓")
-        css_class = verdict.lower()
-        
-        # Build HTML for the claim card
-        correct_info = ""
-        if item.get("correct_fact") and item["correct_fact"] not in [None, "null", "", "null"]:
-            correct_info = f"""
-            <div style='margin-top: 8px; padding: 8px; background: rgba(52, 211, 153, 0.1); border-radius: 8px;'>
-                <strong>✅ Correct Fact:</strong> {item['correct_fact']}
-            </div>
-            """
-        
-        confidence_badge = {
-            "High": "🟢 High",
-            "Medium": "🟡 Medium",
-            "Low": "🔴 Low"
-        }.get(item.get("confidence", "Low"), "⚪ Unknown")
-        
-        st.markdown(f"""
-        <div class='claim-card {css_class}'>
-            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
-                <span style='background: rgba(99,102,241,0.2); padding: 4px 12px; border-radius: 20px; font-size: 0.9rem;'>
-                    {icon} {verdict}
-                </span>
-                <span style='font-size: 0.8rem; opacity: 0.7;'>{confidence_badge} confidence</span>
-            </div>
-            <p><strong>Claim:</strong> {item['claim']}</p>
-            <p><strong>Analysis:</strong> {item.get('explanation', 'No explanation provided')}</p>
-            {correct_info}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Success message
-    st.balloons()
-    st.success(f"✨ Fact-checking complete! Found {counts['Inaccurate'] + counts['False']} questionable claims.")
-    
-    # Add download report button
-    report_data = {
-        "timestamp": datetime.now().isoformat(),
-        "total_claims": len(claims),
-        "results": results
-    }
-    
-    st.download_button(
-        label="📥 Download Report (JSON)",
-        data=json.dumps(report_data, indent=2),
-        file_name=f"factcheck_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-        mime="application/json"
-    )
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: rgba(255,255,255,0.5); font-size: 0.8rem;'>
-    FactCheck AI uses Groq LLM and Serper API for live web verification
-</div>
-""", unsafe_allow_html=True)
+        v = result.get("verdict", "Unverified")
+        counts[v] = counts.get(v, 0) + 1
+        render_stats(counts)
+
+        cf = result.get("correct_fact")
+        correct_html = ""
+        if cf and str(cf).lower() not in ("null","none",""):
+            correct_html = (f"<div class='correct-fact'>"
+                f"<span class='correct-label'>✓ Correct fact</span>"
+                f"{html_lib.escape(str(cf))}</div>")
+
+        card_html = (
+            f"<div class='claim-card {v.lower()}'>"
+            f"<div class='verdict-pill {PILL.get(v,'pill-unverified')}'>{ICONS.get(v,'❓')} {v} &nbsp;·&nbsp; {result.get('confidence','Low')} confidence</div>"
+            f"<div class='claim-text'>\"{html_lib.escape(claim)}\"</div>"
+            f"<div class='claim-exp'>{html_lib.escape(result.get('explanation',''))}</div>"
+            f"{correct_html}</div>")
+
+        all_cards_html.append(card_html)
+        with claims_container:
+            st.markdown("".join(all_cards_html), unsafe_allow_html=True)
+
+        progress_bar.progress((i + 1) / len(claims))
+        time.sleep(2)
+
+    status_text.empty()
+    elapsed  = time.time() - start_time
+    flagged  = counts["Inaccurate"] + counts["False"]
+    accuracy = round(counts["Verified"] / len(results) * 100) if results else 0
+
+    st.markdown(f"""
+    <div style="background:#0D1117;border:1px solid #1E2D3D;border-radius:16px;padding:1.5rem 2rem;margin-top:1.5rem;text-align:center;">
+        <div style="font-size:2rem;font-weight:700;color:#E2E8F0;margin-bottom:0.25rem;">{accuracy}% accuracy rate</div>
+        <div style="color:#64748B;font-size:0.9rem;">{flagged} claim{"s" if flagged!=1 else ""} flagged &nbsp;·&nbsp; completed in {elapsed:.1f}s</div>
+    </div>""", unsafe_allow_html=True)
+
+    if flagged > 0:
+        st.warning(f"⚠️ {flagged} claim(s) flagged — see correct facts in the cards above.")
+    else:
+        st.success("🎉 All verifiable claims check out!")
