@@ -10,15 +10,14 @@ import requests
 import streamlit as st
 
 # ============================================
-# API CONFIGURATION
+# API CONFIGURATION - GROQ API
 # ============================================
 
-# Fixed: Correct Gemini model name
-GEMINI_MODEL = "gemini-2.0-flash-exp"
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # Document limits
-DOCUMENT_CHAR_LIMIT = 16000
+DOCUMENT_CHAR_LIMIT = 12000
 MAX_CLAIMS = 6
 MAX_SOURCES = 3
 VALID_VERDICTS = {"Verified", "Inaccurate", "False", "Unverified"}
@@ -27,13 +26,11 @@ MIN_CLAIM_LENGTH = 25
 MAX_CLAIM_LENGTH = 280
 
 ANALYSIS_MODE_LABELS = {
-    "gemini_live_web": "🌐 Live web fact-check (Gemini + Serper)",
-    "gemini_model_only": "🤖 Model-only fallback (Gemini)",
-    "serper_fallback": "🔍 Serper Web Search Fallback",
+    "groq_live_search": "🌐 Live web fact-check (Groq + Serper)",
+    "groq_model_only": "🤖 Model-only analysis (Groq)",
     "local_fallback": "📝 Local fallback (No AI)",
 }
 
-# JSON Schema for fact-checking
 ANALYSIS_SCHEMA = {
     "type": "array",
     "items": {
@@ -64,13 +61,12 @@ ANALYSIS_SCHEMA = {
 # ============================================
 
 st.set_page_config(
-    page_title="FactCheck AI - Truth Layer",
-    page_icon="🔍",
+    page_title="FactCheck AI - Groq Edition",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS
 st.markdown(
     """
 <style>
@@ -80,11 +76,11 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .main { background: #0f1117; }
 
 .hero {
-    background: linear-gradient(135deg, #112449 0%, #12335f 45%, #0d4d83 100%);
+    background: linear-gradient(135deg, #0a0a2a 0%, #1a1a4a 45%, #2a2a5a 100%);
     border-radius: 20px;
     padding: 2.5rem 2rem;
     margin-bottom: 1.8rem;
-    border: 1px solid #21497a;
+    border: 1px solid #4a4a8a;
     text-align: center;
 }
 .hero h1 { color: #fff; font-size: 2.3rem; font-weight: 700; margin: 0; }
@@ -143,7 +139,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 }
 
 .stButton > button {
-    background: linear-gradient(135deg, #4f46e5, #8b5cf6) !important;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
     color: #fff !important;
     border: none !important;
     border-radius: 10px !important;
@@ -164,13 +160,12 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     unsafe_allow_html=True,
 )
 
-# Hero section
 st.markdown(
     """
 <div class="hero">
-  <h1>🔍 FactCheck AI — Truth Layer</h1>
+  <h1>⚡ FactCheck AI — Groq Edition</h1>
   <p>Upload a PDF, cross-check factual claims against the live web, and get a clean verdict report.</p>
-  <p style="font-size:0.85rem;margin-top:0.75rem;">✨ Powered by Gemini AI + Serper Web Search</p>
+  <p style="font-size:0.85rem;margin-top:0.75rem;">✨ Powered by Groq LPU (Ultra-Fast Inference)</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -189,20 +184,18 @@ st.markdown(
 )
 
 # ============================================
-# API KEY FUNCTIONS (Private via Secrets)
+# API KEY FUNCTIONS
 # ============================================
 
-def get_gemini_key() -> str:
-    """Get Gemini API key from secrets"""
+def get_groq_key() -> str:
     try:
-        if "GEMINI_API_KEY" in st.secrets:
-            return str(st.secrets["GEMINI_API_KEY"]).strip()
+        if "GROQ_API_KEY" in st.secrets:
+            return str(st.secrets["GROQ_API_KEY"]).strip()
     except Exception:
         pass
-    return os.getenv("GEMINI_API_KEY", "").strip()
+    return os.getenv("GROQ_API_KEY", "").strip()
 
 def get_serper_key() -> str:
-    """Get Serper API key from secrets"""
     try:
         if "SERPER_API_KEY" in st.secrets:
             return str(st.secrets["SERPER_API_KEY"]).strip()
@@ -211,22 +204,19 @@ def get_serper_key() -> str:
     return os.getenv("SERPER_API_KEY", "").strip()
 
 # ============================================
-# SERPER WEB SEARCH FUNCTION
+# SERPER WEB SEARCH
 # ============================================
 
 def serper_web_search(query: str, api_key: str) -> str:
-    """Search using Serper.dev Google Search API"""
+    if not api_key:
+        return "Serper API key not configured."
+    
     url = "https://google.serper.dev/search"
     headers = {
         "X-API-KEY": api_key,
         "Content-Type": "application/json"
     }
-    payload = {
-        "q": query,
-        "num": 5,
-        "gl": "in",  # Country: India
-        "hl": "en"   # Language: English
-    }
+    payload = {"q": query, "num": 3}
     
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -234,143 +224,62 @@ def serper_web_search(query: str, api_key: str) -> str:
         data = response.json()
         
         snippets = []
-        
-        # Get organic results
-        for result in data.get("organic", [])[:5]:
-            title = result.get("title", "")
+        for result in data.get("organic", [])[:3]:
             snippet = result.get("snippet", "")
             if snippet:
-                snippets.append(f"{title}: {snippet}")
-        
-        # Get knowledge graph if available
-        knowledge = data.get("knowledgeGraph")
-        if knowledge:
-            description = knowledge.get("description")
-            if description:
-                snippets.append(f"[Knowledge Graph] {description}")
+                snippets.append(snippet)
         
         if snippets:
-            return "\n\n".join(snippets[:5])
-        return "No search results found for this query."
-        
-    except requests.exceptions.RequestException as e:
-        return f"Search error: {str(e)}"
+            return "\n\n".join(snippets)
+        return "No search results found."
     except Exception as e:
-        return f"Unexpected error: {str(e)}"
+        return f"Search error: {str(e)}"
 
 # ============================================
-# GEMINI API FUNCTIONS
+# GROQ API FUNCTIONS
 # ============================================
 
-def parse_backend_error(response: requests.Response) -> tuple[int, str, str]:
-    status_code = response.status_code
-    status = ""
-    message = response.text.strip()
-
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = None
-
-    if isinstance(payload, dict):
-        error = payload.get("error")
-        if isinstance(error, dict):
-            status = str(error.get("status") or "").strip()
-            message = str(error.get("message") or message).strip()
-
-    return status_code, status, message
-
-def format_backend_error(response: requests.Response) -> str:
-    status_code, status, message = parse_backend_error(response)
-    normalized = message.lower()
-
-    if status_code == 403 and "denied access" in normalized:
-        return "Gemini access blocked. Enable billing or check permissions."
-    if status_code == 403:
-        return "Gemini permission denied. Check your API key."
-    if status_code == 429 or status == "RESOURCE_EXHAUSTED":
-        return "Gemini quota exceeded. Try again later or enable billing."
-    if status_code == 404:
-        return "Gemini model not found. Please check API key and model name."
-    if status_code == 400 and "location" in normalized:
-        return "Gemini not available in your region. Use VPN or enable billing."
-    return f"Gemini API error ({status_code}): {message[:200]}"
-
-def gemini_generate(
-    api_key: str,
-    prompt: str,
-    *,
-    schema: dict | None = None,
-    use_search: bool = False,
-    temperature: float = 0.0,
-) -> dict:
+def groq_generate(api_key: str, prompt: str, temperature: float = 0.0) -> str:
     headers = {
-        "x-goog-api-key": api_key,
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    body: dict[str, Any] = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": temperature},
+    
+    body = {
+        "model": GROQ_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "max_tokens": 4096,
     }
-
-    if use_search:
-        body["tools"] = [{"google_search": {}}]
-
-    if schema is not None:
-        body["generationConfig"].update(
-            {
-                "responseMimeType": "application/json",
-                "responseJsonSchema": schema,
-            }
-        )
-
+    
     try:
-        response = requests.post(
-            GEMINI_API_URL.format(model=GEMINI_MODEL),
-            headers=headers,
-            json=body,
-            timeout=90,
-        )
+        response = requests.post(GROQ_API_URL, headers=headers, json=body, timeout=60)
         response.raise_for_status()
+        data = response.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not content:
+            raise RuntimeError("Empty response from Groq API")
+        return content
     except requests.HTTPError as exc:
         if exc.response is not None:
-            raise RuntimeError(format_backend_error(exc.response)) from exc
-        raise RuntimeError(f"Gemini API error: {exc}") from exc
-    except requests.RequestException as exc:
-        raise RuntimeError(f"Gemini request failed: {exc}") from exc
+            error_data = exc.response.json()
+            error_msg = error_data.get("error", {}).get("message", str(exc))
+            raise RuntimeError(f"Groq API error: {error_msg}")
+        raise RuntimeError(f"Groq API error: {exc}")
+    except Exception as exc:
+        raise RuntimeError(f"Groq request failed: {exc}")
 
-    data = response.json()
-    if data.get("candidates"):
-        return data
-
-    feedback = data.get("promptFeedback") or {}
-    block_reason = feedback.get("blockReason")
-    if block_reason:
-        raise RuntimeError(f"Gemini blocked the prompt: {block_reason}")
-
-    raise RuntimeError("Gemini returned no candidates.")
-
-def response_text(data: dict) -> str:
-    candidates = data.get("candidates") or []
-    if not candidates:
-        return ""
-
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text_parts = []
-    for part in parts:
-        text = part.get("text")
-        if text:
-            text_parts.append(text)
-    return "\n".join(text_parts).strip()
-
-def parse_json_text(text: str) -> Any:
+def parse_json_text(text: str):
     cleaned = text.strip()
-    if not cleaned:
-        raise ValueError("Empty model response.")
     json_match = re.search(r'```json\s*(.*?)\s*```', cleaned, re.DOTALL)
     if json_match:
         cleaned = json_match.group(1)
-    return json.loads(cleaned)
+    if cleaned.startswith('[') or cleaned.startswith('{'):
+        return json.loads(cleaned)
+    json_match2 = re.search(r'(\[.*\]|\{.*\})', cleaned, re.DOTALL)
+    if json_match2:
+        return json.loads(json_match2.group(1))
+    raise ValueError(f"Could not parse JSON")
 
 def extract_text_from_pdf(uploaded_file) -> str:
     uploaded_file.seek(0)
@@ -384,19 +293,19 @@ def extract_text_from_pdf(uploaded_file) -> str:
 
 def split_sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?])\s+|\n+", text)
-    return [part.strip(" -\t\r") for part in parts if part and part.strip()]
+    return [part.strip() for part in parts if part and part.strip()]
 
 def infer_claim_category(text: str) -> str:
     lowered = text.lower()
     if re.search(r"\b(?:19|20)\d{2}\b", lowered):
         return "date"
-    if re.search(r"[$€£₹]|\b(?:usd|inr|eur|gbp|crore|lakh|million|billion|revenue|profit)\b", lowered):
+    if re.search(r"[$€£₹]|\b(?:million|billion|crore)\b", lowered):
         return "financial"
-    if re.search(r"\b(?:version|api|model|release|technical)\b", lowered):
+    if re.search(r"\b(?:version|api|model|technical)\b", lowered):
         return "technical"
-    if re.search(r"\b(?:study|survey|research|paper|experiment)\b", lowered):
+    if re.search(r"\b(?:study|survey|research)\b", lowered):
         return "research"
-    if re.search(r"\d|%|\b(?:percent|percentage|users|people|population|growth)\b", lowered):
+    if re.search(r"\d|%", lowered):
         return "statistic"
     return "other"
 
@@ -404,216 +313,124 @@ def looks_like_claim(text: str) -> bool:
     cleaned = " ".join(text.split())
     if len(cleaned) < MIN_CLAIM_LENGTH or len(cleaned) > MAX_CLAIM_LENGTH:
         return False
-    if not re.search(
-        r"\d|%|[$€£₹]|\b(?:million|billion|crore|lakh|version|study|survey|research|users|people|founded|released|launched|grew|increased|decreased)\b",
-        cleaned,
-        flags=re.IGNORECASE,
-    ):
-        return False
-    if cleaned.endswith(":"):
+    if not re.search(r"\d|%|[$€£₹]|\b(?:million|billion|crore|version|study|research)\b", cleaned, re.IGNORECASE):
         return False
     return True
 
 def extract_claims_locally(text: str) -> list[dict]:
     claims = []
     seen_claims = set()
-
     for sentence in split_sentences(text):
         candidate = " ".join(sentence.split())
         if not looks_like_claim(candidate):
             continue
-
         claim_key = candidate.casefold()
         if claim_key in seen_claims:
             continue
         seen_claims.add(claim_key)
-
-        claims.append(
-            {
-                "id": len(claims) + 1,
-                "claim": candidate,
-                "category": infer_claim_category(candidate),
-            }
-        )
-
+        claims.append({
+            "id": len(claims) + 1,
+            "claim": candidate,
+            "category": infer_claim_category(candidate),
+        })
         if len(claims) >= MAX_CLAIMS:
             break
-
     return claims
 
-def normalize_verdict(value: Any) -> str:
+def normalize_verdict(value) -> str:
     verdict = str(value or "Unverified").strip().title()
-    mapping = {
-        "True": "Verified",
-        "Mostly True": "Inaccurate",
-        "Partly True": "Inaccurate",
-        "Partial": "Inaccurate",
-        "Partially True": "Inaccurate",
-        "Misleading": "Inaccurate",
-        "Incorrect": "False",
-    }
+    mapping = {"True": "Verified", "Mostly True": "Inaccurate", "Partly True": "Inaccurate", "Misleading": "Inaccurate", "Incorrect": "False"}
     verdict = mapping.get(verdict, verdict)
-    if verdict not in VALID_VERDICTS:
-        verdict = "Unverified"
-    return verdict
+    return verdict if verdict in VALID_VERDICTS else "Unverified"
 
-def normalize_confidence(value: Any) -> str:
+def normalize_confidence(value) -> str:
     confidence = str(value or "Low").strip().title()
-    if confidence not in VALID_CONFIDENCE:
-        confidence = "Low"
-    return confidence
+    return confidence if confidence in VALID_CONFIDENCE else "Low"
 
-def normalize_analysis_results(payload: Any) -> list[dict]:
+def normalize_analysis_results(payload) -> list[dict]:
     if not isinstance(payload, list):
         raise ValueError("Analysis did not return a JSON array.")
-
     results = []
     seen_claims = set()
-
     for item in payload:
         if not isinstance(item, dict):
             continue
-
         claim_text = str(item.get("claim", "")).strip()
-        if not claim_text:
+        if not claim_text or claim_text.casefold() in seen_claims:
             continue
-
-        claim_key = claim_text.casefold()
-        if claim_key in seen_claims:
-            continue
-        seen_claims.add(claim_key)
-
-        verdict = normalize_verdict(item.get("verdict"))
-        confidence = normalize_confidence(item.get("confidence"))
-        explanation = str(item.get("explanation", "")).strip() or "No explanation returned."
-        category = str(item.get("category", "other")).strip().lower() or "other"
-
-        correct_fact = item.get("correct_fact")
-        if correct_fact is not None:
-            correct_fact = str(correct_fact).strip() or None
-
-        sources = item.get("sources", [])
-        if isinstance(sources, str):
-            sources = [sources]
-        if not isinstance(sources, list):
-            sources = []
-
-        cleaned_sources = []
-        seen_sources = set()
-        for source in sources:
-            source_text = str(source).strip()
-            if not source_text:
-                continue
-            source_key = source_text.casefold()
-            if source_key in seen_sources:
-                continue
-            seen_sources.add(source_key)
-            cleaned_sources.append(source_text)
-            if len(cleaned_sources) >= MAX_SOURCES:
-                break
-
-        results.append(
-            {
-                "id": len(results) + 1,
-                "claim": claim_text,
-                "category": category,
-                "verdict": verdict,
-                "confidence": confidence,
-                "explanation": explanation,
-                "correct_fact": correct_fact,
-                "sources": cleaned_sources,
-            }
-        )
-
+        seen_claims.add(claim_text.casefold())
+        results.append({
+            "id": len(results) + 1,
+            "claim": claim_text,
+            "category": str(item.get("category", "other")).strip().lower(),
+            "verdict": normalize_verdict(item.get("verdict")),
+            "confidence": normalize_confidence(item.get("confidence")),
+            "explanation": str(item.get("explanation", "No explanation.")).strip(),
+            "correct_fact": str(item.get("correct_fact")).strip() if item.get("correct_fact") else None,
+            "sources": [str(s).strip() for s in (item.get("sources", []) if isinstance(item.get("sources"), list) else [])][:MAX_SOURCES],
+        })
         if len(results) >= MAX_CLAIMS:
             break
-
     if not results:
         raise ValueError("No claim analysis results were returned.")
-
     return results
 
-def build_unverified_results(claims: list[dict], reason: str) -> list[dict]:
-    results = []
-    for claim in claims:
-        results.append(
-            {
-                "id": claim["id"],
-                "claim": claim["claim"],
-                "category": claim["category"],
-                "verdict": "Unverified",
-                "confidence": "Low",
-                "explanation": reason,
-                "correct_fact": None,
-                "sources": [],
-            }
-        )
-    return results
+def build_unverified_results(claims, reason):
+    return [{
+        "id": c["id"],
+        "claim": c["claim"],
+        "category": c["category"],
+        "verdict": "Unverified",
+        "confidence": "Low",
+        "explanation": reason,
+        "correct_fact": None,
+        "sources": [],
+    } for c in claims]
 
 # ============================================
-# ANALYSIS WITH SERPER + GEMINI
+# ANALYSIS FUNCTIONS
 # ============================================
 
-def analyze_with_serper_and_gemini(gemini_key: str, serper_key: str, text: str) -> list[dict]:
-    """First use Serper to search, then Gemini to analyze with search results"""
-    
-    # Step 1: Extract claims locally first
+def analyze_with_groq(groq_key: str, serper_key: str, text: str) -> list[dict]:
     local_claims = extract_claims_locally(text)
     if not local_claims:
         raise ValueError("No claims found in document")
     
-    # Step 2: For each claim, search with Serper
-    claim_analysis_results = []
-    
+    results = []
     for claim_item in local_claims[:MAX_CLAIMS]:
         claim_text = claim_item["claim"]
         
-        # Search the web for this claim
-        search_results = serper_web_search(claim_text, serper_key)
+        # Search web if Serper key is available
+        search_results = ""
+        if serper_key:
+            search_results = serper_web_search(claim_text, serper_key)
         
-        # Step 3: Use Gemini to verify claim with search results
-        verification_prompt = f"""You are a fact-checking expert. Analyze this claim using the provided search results.
+        prompt = f"""You are a fact-checking expert.
 
 Claim: "{claim_text}"
 
-Search Results:
-{search_results}
+{'Search Results:' + search_results if search_results else 'No search results available. Use your knowledge.'}
 
-Based ONLY on the search results above, determine if this claim is:
-- Verified: The search results CONFIRM the claim is accurate
-- Inaccurate: The claim is outdated, partially wrong, or numbers are off
-- False: The search results CONTRADICT the claim
-- Unverified: The search results don't provide enough information
-
-Respond with a JSON object:
+Based on the above, respond with JSON:
 {{
     "claim": "{claim_text}",
     "category": "{claim_item['category']}",
     "verdict": "Verified/Inaccurate/False/Unverified",
     "confidence": "High/Medium/Low",
-    "explanation": "Brief explanation based on search results",
-    "correct_fact": "Correct fact if claim is wrong, otherwise null",
-    "sources": ["source1", "source2"]
-}}
-
-Do not include any other text, only the JSON object."""
-
+    "explanation": "Brief explanation",
+    "correct_fact": "Correct fact if wrong, else null",
+    "sources": ["source1 or null"]
+}}"""
+        
         try:
-            data = gemini_generate(gemini_key, verification_prompt, schema=ANALYSIS_SCHEMA, temperature=0.0)
-            result_text = response_text(data)
+            result_text = groq_generate(groq_key, prompt, temperature=0.0)
             parsed = parse_json_text(result_text)
-            
-            # Handle single object or array
             if isinstance(parsed, dict):
-                claim_analysis_results.append(parsed)
+                results.append(parsed)
             elif isinstance(parsed, list) and len(parsed) > 0:
-                claim_analysis_results.append(parsed[0])
-            else:
-                raise ValueError("Invalid response format")
-                
+                results.append(parsed[0])
         except Exception as e:
-            # Fallback: mark as unverified
-            claim_analysis_results.append({
+            results.append({
                 "claim": claim_text,
                 "category": claim_item["category"],
                 "verdict": "Unverified",
@@ -623,70 +440,7 @@ Do not include any other text, only the JSON object."""
                 "sources": []
             })
     
-    return normalize_analysis_results(claim_analysis_results)
-
-def analyze_with_gemini_live(api_key: str, text: str) -> list[dict]:
-    """Use Gemini's built-in Google Search"""
-    prompt = f"""You are a fact-checking web agent for uploaded PDFs.
-
-Your job is to:
-1. Extract up to {MAX_CLAIMS} explicit factual claims from the document that are worth checking on the public web.
-2. Use live Google Search results to verify each claim against current information.
-3. Return one JSON array only.
-
-For each item return:
-- claim
-- category
-- verdict
-- confidence
-- explanation
-- correct_fact
-- sources
-
-Use these exact verdict labels:
-- Verified = the claim matches current public evidence
-- Inaccurate = the claim is outdated, incomplete, or numerically off
-- False = reliable public evidence contradicts the claim or there is no credible support
-- Unverified = the claim is private, resume-style, or not publicly provable
-
-Rules:
-- prioritize stats, dates, financial figures, technical details, rankings, company facts
-- prefer official, primary, or highly authoritative sources
-- include 1 to {MAX_SOURCES} short source labels or URLs when available
-- if a claim is wrong or outdated, include the corrected real fact in correct_fact
-- do not return more than {MAX_CLAIMS} claims
-
-DOCUMENT:
-{text[:DOCUMENT_CHAR_LIMIT]}
-"""
-    data = gemini_generate(api_key, prompt, schema=ANALYSIS_SCHEMA, use_search=True, temperature=0.0)
-    return normalize_analysis_results(parse_json_text(response_text(data)))
-
-def analyze_with_gemini_model_only(api_key: str, text: str) -> list[dict]:
-    """Use Gemini without web search"""
-    prompt = f"""You are a document analysis assistant.
-
-Read the uploaded PDF text and extract up to {MAX_CLAIMS} explicit factual claims worth reviewing.
-For each claim:
-- assign a short category
-- assign one verdict using exactly one of these labels: Verified, Inaccurate, False, or Unverified
-- assign one confidence: High, Medium, or Low
-- write a short explanation
-- include a corrected fact when the claim is wrong or outdated, otherwise null
-- include a short list of sources only when you are highly confident; otherwise use []
-
-Important rules:
-- analyze only claims that actually appear in the document
-- use your general model knowledge and the uploaded document
-- do not use live web search in this fallback mode
-- if you are unsure, prefer Unverified
-- do not return more than {MAX_CLAIMS} items
-
-DOCUMENT:
-{text[:DOCUMENT_CHAR_LIMIT]}
-"""
-    data = gemini_generate(api_key, prompt, schema=ANALYSIS_SCHEMA, temperature=0.0)
-    return normalize_analysis_results(parse_json_text(response_text(data)))
+    return normalize_analysis_results(results)
 
 # ============================================
 # UI FUNCTIONS
@@ -710,282 +464,153 @@ def render_claim_card(result: dict) -> None:
         "False": "false",
         "Unverified": "unverified",
     }.get(verdict, "unverified")
-
+    
     claim_text = html.escape(str(result.get("claim", "")).strip())
     explanation = html.escape(str(result.get("explanation", "")).strip())
     confidence = str(result.get("confidence", "?")).strip().title()
     category = html.escape(str(result.get("category", "")).strip().upper())
-    claim_id = html.escape(str(result.get("id", "")).strip())
-
+    
     correct_html = ""
     if result.get("correct_fact"):
-        correct_fact = html.escape(str(result["correct_fact"]).strip())
-        correct_html = f"<p class=\"correct-fact\">✅ Correct fact: {correct_fact}</p>"
-
+        correct_html = f"<p class='correct-fact'>✅ Correct fact: {html.escape(str(result['correct_fact']))}</p>"
+    
     sources_html = ""
     if result.get("sources"):
-        source_tags = []
-        for source in result["sources"][:MAX_SOURCES]:
-            source_tags.append(f"<span class=\"source-link\">{html.escape(str(source))}</span>")
-        sources_html = f"<p style=\"margin-top:0.4rem;\">{' · '.join(source_tags)}</p>"
-
-    conf_color = {
-        "High": "#10b981",
-        "Medium": "#f59e0b",
-        "Low": "#ef4444",
-    }.get(confidence, "#94a3b8")
-
-    st.markdown(
-        f"""
+        source_tags = [f"<span class='source-link'>{html.escape(str(s))}</span>" for s in result["sources"][:3]]
+        sources_html = f"<p style='margin-top:0.4rem;'>{' · '.join(source_tags)}</p>"
+    
+    st.markdown(f"""
     <div class="claim-card {card_cls}">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
         {badge_html(verdict)}
-        <span style="font-size:0.75rem;color:{conf_color};font-weight:600;">
-          {html.escape(confidence)} confidence &nbsp;·&nbsp; #{claim_id} &nbsp;·&nbsp; {category}
-        </span>
+        <span style="font-size:0.75rem;font-weight:600;">{confidence} confidence · {category}</span>
       </div>
       <p class="claim-text">"{claim_text}"</p>
       <p class="verdict-text">{explanation}</p>
       {correct_html}
       {sources_html}
     </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
 
 # ============================================
 # MAIN APP
 # ============================================
 
-# Sidebar for API Configuration
 with st.sidebar:
     st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
-    st.markdown("### 🔑 API Configuration")
+    st.markdown("### ⚡ Groq API Configuration")
     
-    # API status
-    gemini_key = get_gemini_key()
+    groq_key = get_groq_key()
     serper_key = get_serper_key()
     
-    if gemini_key:
-        st.success("✅ Gemini API key configured")
+    if groq_key:
+        st.success("✅ Groq API key configured")
+        st.caption(f"Model: {GROQ_MODEL}")
     else:
-        st.error("❌ Gemini API key missing - Add to secrets")
+        st.error("❌ Groq API key missing")
+        st.caption("Add GROQ_API_KEY to secrets")
     
     if serper_key:
-        st.success("✅ Serper API key configured")
+        st.success("✅ Serper API key configured (Web Search)")
     else:
-        st.warning("⚠️ Serper API key missing - Add for better search")
-    
-    st.markdown("---")
-    st.markdown("### 🔍 Search Mode")
-    
-    # Search mode selection
-    if serper_key and gemini_key:
-        search_mode = st.radio(
-            "Select verification method",
-            ["🚀 Gemini + Built-in Search (Recommended)", "🔎 Gemini + Serper Search (Alternative)"],
-            help="Built-in search uses Gemini's native Google Search. Serper is an alternative."
-        )
-    elif serper_key:
-        search_mode = "🔎 Gemini + Serper Search (Alternative)"
-        st.info("Using Serper search mode")
-    else:
-        search_mode = "🚀 Gemini + Built-in Search (Recommended)"
-        st.info("Using Gemini built-in search")
+        st.info("ℹ️ Serper key not set - using Groq only")
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Info box
     st.markdown('<div class="sidebar-box">', unsafe_allow_html=True)
-    st.markdown("### 📊 FactCheck Features")
+    st.markdown("### 📊 Verdict Guide")
     st.markdown("""
-    - ✅ **Verified** - Matches current evidence
-    - ⚠️ **Inaccurate** - Outdated or off by numbers
-    - ❌ **False** - Contradicted by evidence
-    - ❓ **Unverified** - Not publicly provable
+    - ✅ **Verified** - Matches evidence
+    - ⚠️ **Inaccurate** - Outdated/wrong numbers
+    - ❌ **False** - Contradicted
+    - ❓ **Unverified** - Can't verify
     """)
-    st.markdown("---")
-    st.markdown("### 🎯 Trap Document Ready")
-    st.markdown("Upload a PDF with intentional lies or outdated stats. The system will flag them!")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Main area
 col_upload, col_info = st.columns([2, 1])
 
 with col_upload:
-    uploaded_file = st.file_uploader("📄 Upload PDF", type=["pdf"], help="Upload any PDF with factual claims, stats, or dates")
+    uploaded_file = st.file_uploader("📄 Upload PDF", type=["pdf"])
 
 with col_info:
-    st.markdown(
-        """
+    st.markdown("""
     <div class="stat-box" style="margin-bottom:0.8rem;">
-      <div class="stat-num" style="color:#6366f1;">4</div>
-      <div class="stat-label">Simple Steps</div>
+      <div class="stat-num" style="color:#6366f1;">⚡</div>
+      <div class="stat-label">Groq LPU - Ultra Fast</div>
     </div>
-    <div style="background:#1e2130;border-radius:10px;padding:1rem;border:1px solid #2d3748;font-size:0.82rem;color:#94a3b8;">
-      <b style="color:#e2e8f0;">How it works</b><br><br>
-      1️⃣ Upload PDF with claims<br>
-      2️⃣ System extracts facts & stats<br>
-      3️⃣ Live web search verification<br>
-      4️⃣ Get verdict with corrections<br><br>
-      <span style="color:#10b981;">✨ Detects outdated & false claims</span><br>
-      <span style="color:#f59e0b;">⚠️ Flags inaccurate statistics</span><br>
-      <span style="color:#ef4444;">❌ Identifies fabricated facts</span>
+    <div style="background:#1e2130;border-radius:10px;padding:1rem;border:1px solid #2d3748;font-size:0.82rem;">
+      <b>How it works</b><br><br>
+      1. Upload PDF with claims<br>
+      2. Groq AI extracts facts<br>
+      3. Web search verification<br>
+      4. Get verdict report
     </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
 
 run = st.button("🚀 Analyze PDF", use_container_width=True, type="primary")
 
 if run:
     if not uploaded_file:
-        st.error("Please upload a PDF file first.")
+        st.error("Please upload a PDF file.")
         st.stop()
     
-    # Check Gemini API key
-    gemini_key = get_gemini_key()
-    if not gemini_key:
-        st.error("❌ Gemini API key not configured. Please add GEMINI_API_KEY to Streamlit secrets.")
+    groq_key = get_groq_key()
+    if not groq_key:
+        st.error("❌ Groq API key not configured!")
         st.stop()
     
     with st.spinner("📄 Extracting text from PDF..."):
         try:
             pdf_text = extract_text_from_pdf(uploaded_file)
-        except Exception as exc:
-            st.error(f"PDF read error: {exc}")
+        except Exception as e:
+            st.error(f"PDF error: {e}")
             st.stop()
     
     if not pdf_text.strip():
-        st.error("No text found in PDF. Please upload a text-based PDF (not scanned image).")
+        st.error("No text found in PDF.")
         st.stop()
     
-    st.success(f"✅ Extracted {len(pdf_text):,} characters from PDF")
+    st.success(f"✅ Extracted {len(pdf_text):,} characters")
     
-    analysis_mode = "local_fallback"
-    analysis_error = None
-    results = []
+    with st.spinner("⚡ Analyzing with Groq (this is fast!)..."):
+        try:
+            results = analyze_with_groq(groq_key, serper_key, pdf_text)
+            analysis_mode = "groq_live_search" if serper_key else "groq_model_only"
+        except Exception as e:
+            local_claims = extract_claims_locally(pdf_text)
+            if not local_claims:
+                st.error(f"Analysis failed: {e}")
+                st.stop()
+            results = build_unverified_results(local_claims, f"AI unavailable: {str(e)[:100]}")
+            analysis_mode = "local_fallback"
     
-    # Choose analysis method based on selection
-    use_serper = "Serper" in search_mode if 'search_mode' in dir() else False
+    st.success(f"✅ Analysis complete for {len(results)} claims!")
     
-    if use_serper and get_serper_key():
-        with st.spinner("🔎 Searching web with Serper API and verifying claims..."):
-            try:
-                results = analyze_with_serper_and_gemini(gemini_key, get_serper_key(), pdf_text)
-                analysis_mode = "serper_fallback"
-            except Exception as exc:
-                analysis_error = str(exc)
-                st.warning(f"Serper mode failed: {analysis_error[:200]}")
-    
-    if not results:
-        # Try Gemini built-in search
-        with st.spinner("🌐 Fact-checking with Gemini + Live Web Search..."):
-            try:
-                results = analyze_with_gemini_live(gemini_key, pdf_text)
-                analysis_mode = "gemini_live_web"
-            except Exception as exc:
-                analysis_error = str(exc)
-        
-        if not results and analysis_error:
-            # Fallback to model-only
-            with st.spinner("🤖 Falling back to Gemini model-only analysis..."):
-                try:
-                    results = analyze_with_gemini_model_only(gemini_key, pdf_text)
-                    analysis_mode = "gemini_model_only"
-                except Exception as exc:
-                    analysis_error = str(exc)
-                    local_claims = extract_claims_locally(pdf_text)
-                    if not local_claims:
-                        st.error(f"Analysis failed: {analysis_error}")
-                        st.stop()
-                    results = build_unverified_results(
-                        local_claims,
-                        f"AI analysis unavailable: {analysis_error[:200]}",
-                    )
-    
-    # Show mode info
-    if analysis_mode == "gemini_live_web":
-        st.success(f"🎯 Live web fact-check completed for **{len(results)}** claims using Gemini + Google Search!")
-    elif analysis_mode == "serper_fallback":
-        st.success(f"🎯 Web fact-check completed for **{len(results)}** claims using Serper + Gemini!")
-    elif analysis_mode == "gemini_model_only":
-        st.warning(f"⚠️ Using Gemini fallback mode (no live web search) for {len(results)} claims")
-        if analysis_error:
-            st.caption(f"Live-web error: {analysis_error[:150]}")
-    else:
-        st.warning(f"📝 Using local fallback mode for {len(results)} claims (AI unavailable)")
-        if analysis_error:
-            st.caption(f"Error: {analysis_error[:150]}")
-    
-    # Display results
     st.markdown("---")
     st.markdown("## 📊 Analysis Report")
-    st.caption(f"Mode: {ANALYSIS_MODE_LABELS.get(analysis_mode, analysis_mode)}")
-    st.markdown(f"*Generated: {datetime.now().strftime('%B %d, %Y at %H:%M')}*")
     
     counts = {"Verified": 0, "Inaccurate": 0, "False": 0, "Unverified": 0}
-    for result in results:
-        verdict = result.get("verdict", "Unverified")
-        if verdict not in counts:
-            verdict = "Unverified"
-        counts[verdict] += 1
+    for r in results:
+        counts[r.get("verdict", "Unverified")] += 1
     
     c1, c2, c3, c4 = st.columns(4)
-    for col, (label, color, icon) in zip(
-        [c1, c2, c3, c4],
-        [
-            ("Verified", "#10b981", "✅"),
-            ("Inaccurate", "#f59e0b", "⚠️"),
-            ("False", "#ef4444", "❌"),
-            ("Unverified", "#6366f1", "❓"),
-        ],
-    ):
+    for col, (label, color, icon) in zip([c1, c2, c3, c4], [
+        ("Verified", "#10b981", "✅"), ("Inaccurate", "#f59e0b", "⚠️"),
+        ("False", "#ef4444", "❌"), ("Unverified", "#6366f1", "❓"),
+    ]):
         with col:
-            st.markdown(
-                f"""
-            <div class="stat-box">
-              <div class="stat-num" style="color:{color};">{icon} {counts[label]}</div>
-              <div class="stat-label">{label}</div>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
+            st.markdown(f"<div class='stat-box'><div class='stat-num' style='color:{color};'>{icon} {counts[label]}</div><div class='stat-label'>{label}</div></div>", unsafe_allow_html=True)
     
     st.markdown("### 🔎 Detailed Results")
-    tabs = st.tabs(["All Claims", "✅ Verified", "⚠️ Inaccurate", "❌ False", "❓ Unverified"])
-    groups = {
-        "All Claims": results,
-        "✅ Verified": [item for item in results if item["verdict"] == "Verified"],
-        "⚠️ Inaccurate": [item for item in results if item["verdict"] == "Inaccurate"],
-        "❌ False": [item for item in results if item["verdict"] == "False"],
-        "❓ Unverified": [item for item in results if item["verdict"] == "Unverified"],
-    }
+    for item in results:
+        render_claim_card(item)
     
-    for tab, (_, items) in zip(tabs, groups.items()):
-        with tab:
-            if not items:
-                st.info("No claims in this category.")
-            for item in items:
-                render_claim_card(item)
+    report_json = json.dumps({
+        "generated_at": datetime.now().isoformat(),
+        "model": GROQ_MODEL,
+        "mode": analysis_mode,
+        "summary": counts,
+        "results": results,
+    }, indent=2)
     
-    # Download button
-    report_json = json.dumps(
-        {
-            "generated_at": datetime.now().isoformat(),
-            "file_name": uploaded_file.name if uploaded_file else "unknown",
-            "mode": analysis_mode,
-            "error": analysis_error if analysis_error else None,
-            "summary": counts,
-            "total_claims": len(results),
-            "results": results,
-        },
-        indent=2,
-        ensure_ascii=False,
-    )
-    st.download_button(
-        "⬇️ Download Full Report (JSON)",
-        data=report_json,
-        file_name=f"factcheck_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-        mime="application/json",
-    )
+    st.download_button("⬇️ Download JSON Report", data=report_json, file_name="factcheck_report.json", mime="application/json")
