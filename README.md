@@ -1,82 +1,68 @@
-# 🔍 FactCheck AI — Automated PDF Fact-Checking Agent
+# 🔍 FactCheck AI
 
-A Streamlit web app that reads any PDF, extracts verifiable claims, searches the live web, and flags each claim as **Verified**, **Inaccurate**, or **False**.
+A Streamlit web app for automated PDF fact-checking.
 
-## 🚀 Live Demo
-> Deploy to Streamlit Cloud (see below) and paste your URL here.
+Flow:
 
----
+1. Upload PDF
+2. Verify claims against the live web
+3. Review the verdict report
 
-## ✨ Features
+This version is designed to match the assignment more closely:
 
-| Feature | Detail |
-|---|---|
-| 📄 PDF Upload | Drag-and-drop any PDF |
-| 🤖 AI Claim Extraction | Claude extracts stats, dates, figures, research claims |
-| 🌐 Live Web Verification | Claude's built-in web search cross-references each claim |
-| 🏷️ Verdict Labels | Verified ✅ · Inaccurate ⚠️ · False ❌ · Unverified ❓ |
-| 📊 Summary Dashboard | Count cards + filterable tabs |
-| ⬇️ JSON Export | Full report download |
+- Extracts factual claims from the uploaded PDF
+- Attempts live web verification first
+- Flags claims as Verified, Inaccurate, False, or Unverified
+- Falls back gracefully if live search quota is unavailable
 
----
+## Features
 
-## 🛠️ Tech Stack
+- PDF upload interface
+- Server-side Gemini key only
+- Live-web-first fact-check mode
+- Corrected fact field for outdated or wrong claims
+- JSON report download
 
-- **Frontend & Backend**: [Streamlit](https://streamlit.io/)
-- **AI Model**: Claude Sonnet (Anthropic API)
-- **Web Search**: Claude's native `web_search_20250305` tool
-- **PDF Parsing**: pdfplumber
+## Modes
 
----
+- `Live web fact-check`: best mode for trap documents with public stats, dates, technical claims, and company facts
+- `Model-only fallback`: used when live search is unavailable but Gemini text analysis still works
+- `Local fallback`: used only if AI analysis is unavailable
 
-## 📦 Local Setup
+## Local Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/factcheck-ai
-cd factcheck-ai
-
 pip install -r requirements.txt
-
 streamlit run app.py
 ```
 
-Then open `http://localhost:8501` in your browser.
+Open `http://localhost:8501` in your browser.
 
-You'll be prompted to enter your **Anthropic API Key** in the app UI. Get one at [console.anthropic.com](https://console.anthropic.com).
+Configure the server-side key with Streamlit secrets or environment variables:
 
----
-
-## ☁️ Deploy to Streamlit Cloud (Free)
-
-1. Push this repo to GitHub
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-3. Click **"New app"** → select your repo → set `app.py` as the main file
-4. Click **Deploy** — done! 🎉
-
-> No secrets needed — users enter their own API key in the UI.
-
----
-
-## 📁 Project Structure
-
-```
-factcheck-ai/
-├── app.py            # Main Streamlit application
-├── requirements.txt  # Python dependencies
-└── README.md         # This file
+```toml
+GEMINI_API_KEY = "your_key_here"
 ```
 
----
+```bash
+export GEMINI_API_KEY=your_key_here
+export GEMINI_MODEL=gemini-3.5-flash
+```
 
-## 🧪 Evaluation / Trap Document Test
+## Notes
 
-Upload any PDF with intentional lies or outdated statistics. The app will:
-1. Extract all verifiable claims automatically
-2. Search the live web for each one
-3. Flag outdated/wrong claims with the **correct real fact**
+- The app is strongest on public factual claims, not private resume-only claims.
+- If the PDF contains personal claims like marks, CGPA, or internal project metrics with no public proof, those may appear as `Unverified`.
+- For assignment evaluation, use a Gemini project with working web-search quota so the app can stay in `Live web fact-check` mode.
 
----
+## Deployment
 
-## 📝 License
+This app is ready for Streamlit Cloud style deployment:
 
-MIT — free to use, modify, and deploy.
+- push the repo to GitHub
+- add `GEMINI_API_KEY` in Streamlit Cloud secrets
+- deploy `app.py` as the main file
+
+## License
+
+MIT
