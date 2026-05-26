@@ -247,25 +247,19 @@ def extract_pdf_text(file) -> str:
 
 
 def extract_claims_ai(text: str) -> list:
-    prompt = f"""You are a claim extractor for a professional fact-checking system.
+    prompt = f"""Extract verifiable factual claims from this document.
 
-Extract every SPECIFIC, VERIFIABLE factual claim from the document below.
+RULES:
+- Complete sentences only: "Tesla sold 2.5M vehicles in 2024" ✅ | "2.5M" ❌
+- Include entity name + number/date + context in every claim
+- Max 15 claims
 
-STRICT RULES:
-- Each claim MUST be a COMPLETE SENTENCE: subject + verb + exact figure/fact + context
-- GOOD: "Tesla sold 2.5 million vehicles globally in 2024"
-- BAD: "2.5 million" or "sold vehicles" — fragments are INVALID
-- Always include the full entity name — never orphaned numbers
-- Preserve exact numbers, dates, percentages, names as written
-- Maximum 15 claims
+Return ONLY a JSON array. Example: ["Claim one.", "Claim two."]
 
-Return ONLY a valid JSON array of strings. No markdown, no backticks, no explanation.
-Format: ["Claim one.", "Claim two.", "Claim three."]
+TEXT:
+{text[:3000]}"""
 
-DOCUMENT TEXT:
-{text[:8000]}"""
-
-    raw = call_groq(prompt, max_tokens=1500)
+    raw = call_groq(prompt, max_tokens=800)
     match = re.search(r"\[.*?\]", raw, re.DOTALL)
     if match:
         try:
@@ -291,24 +285,20 @@ DOCUMENT TEXT:
 
 def verify_claim(claim: str) -> dict:
     search_results = serper_search(claim)
-    prompt = f"""You are a professional fact-checker with live web search results.
+    prompt = f"""Fact-check this claim using the search results below.
 
 CLAIM: "{claim}"
 
-LIVE WEB SEARCH RESULTS:
-{search_results if search_results else "No results — use your training knowledge."}
+SEARCH RESULTS:
+{search_results[:2000] if search_results else "No results — use training knowledge."}
 
-Choose verdict:
-- "Verified"   = accurate, confirmed by evidence
-- "Inaccurate" = right topic but wrong number/date/scale
-- "False"      = clearly wrong, evidence contradicts it
-- "Unverified" = cannot confirm or deny
+Verdict: Verified=accurate | Inaccurate=wrong number/date | False=contradicted | Unverified=unclear
 
-Respond ONLY with valid JSON, no markdown, no backticks:
-{{"verdict":"Verified|Inaccurate|False|Unverified","confidence":"High|Medium|Low","explanation":"One precise sentence with evidence.","correct_fact":"Accurate fact with context, or null"}}"""
+JSON only, no markdown:
+{{"verdict":"Verified|Inaccurate|False|Unverified","confidence":"High|Medium|Low","explanation":"One sentence.","correct_fact":"Real fact or null"}}"""
 
     try:
-        raw = call_groq(prompt, max_tokens=600)
+        raw = call_groq(prompt, max_tokens=300)
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if match:
             result = json.loads(match.group())
@@ -478,7 +468,7 @@ if run:
             st.markdown("".join(all_cards_html), unsafe_allow_html=True)
 
         progress_bar.progress((i + 1) / len(claims))
-        time.sleep(2)
+        time.sleep(1)
 
     status_text.empty()
 
