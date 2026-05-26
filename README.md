@@ -10,7 +10,7 @@
 
 ## 🎥 Demo Video
 
-https://github.com/user-attachments/assets/your-video-id
+https://www.linkedin.com/posts/vivek-rastogi-78401430b_ai-productmanagement-factchecking-ugcPost-7464867372890398720--G1h/?utm_source=share&utm_medium=member_desktop&rcm=ACoAAE7YoFQBtnp4zwgU42L_px6gNqDmkH8pn3c
 
 > 📌 Watch the full working demo: PDF upload → Claim extraction → Live verification → Results report
 
