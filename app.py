@@ -6,6 +6,7 @@ import re
 import time
 import html as html_lib
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ============================================================
 # CONFIG
@@ -18,7 +19,7 @@ except Exception:
     SERPER_API_KEY = os.getenv("SERPER_API_KEY",  "c04f1c3f9bcd7ef89ffe4e6264e672901cd94112")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_MODEL   = "llama-3.1-8b-instant"   # fastest Groq model
 
 # ============================================================
 # PAGE CONFIG
@@ -396,7 +397,6 @@ if run:
 
     progress_bar = st.progress(0)
     status_text  = st.empty()
-    results = []
     counts  = {"Verified": 0, "Inaccurate": 0, "False": 0, "Unverified": 0}
     stats_ph = st.empty()
 
@@ -429,22 +429,39 @@ if run:
     PILLS = {"Verified":"pill-verified","Inaccurate":"pill-inaccurate",
              "False":"pill-false","Unverified":"pill-unverified"}
 
-    for i, claim in enumerate(claims):
-        status_text.markdown(
-            f"<div style='font-size:0.85rem;color:#64748B;padding:0.4rem 0;'>"
-            f"🔎 Verifying {i+1}/{len(claims)}: "
-            f"<em style='color:#94A3B8;'>{html_lib.escape(claim[:90])}…</em></div>",
-            unsafe_allow_html=True,
-        )
+    # ── Parallel verification — all claims at once ──
+    status_text.markdown(
+        "<div style='font-size:0.85rem;color:#64748B;padding:0.4rem 0;'>"
+        "⚡ Verifying all claims in parallel…</div>",
+        unsafe_allow_html=True,
+    )
 
-        result = verify_claim(claim)
-        result["claim"] = claim
-        results.append(result)
+    results = [None] * len(claims)
 
-        v = result.get("verdict", "Unverified")
-        counts[v] = counts.get(v, 0) + 1
-        render_stats(counts)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_idx = {executor.submit(verify_claim, claim): i for i, claim in enumerate(claims)}
+        done_count = 0
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                result = future.result()
+            except Exception:
+                result = {"verdict": "Unverified", "confidence": "Low",
+                          "explanation": "Verification failed.", "correct_fact": None}
+            result["claim"] = claims[idx]
+            results[idx] = result
 
+            v = result.get("verdict", "Unverified")
+            counts[v] = counts.get(v, 0) + 1
+            done_count += 1
+            render_stats(counts)
+            progress_bar.progress(done_count / len(claims))
+
+    status_text.empty()
+
+    # Render all cards in order
+    for result in results:
+        v  = result.get("verdict", "Unverified")
         cf = result.get("correct_fact")
         correct_html = ""
         if cf and str(cf).strip().lower() not in ("null", "none", "", "n/a"):
@@ -453,24 +470,18 @@ if run:
                 f"<span class='correct-label'>✓ Correct fact</span>"
                 f"{html_lib.escape(str(cf))}</div>"
             )
-
         card_html = (
             f"<div class='claim-card {v.lower()}'>"
             f"<div class='verdict-pill {PILLS.get(v,'pill-unverified')}'>"
             f"{ICONS.get(v,'❓')} {v} &nbsp;·&nbsp; {result.get('confidence','Low')} confidence</div>"
-            f"<div class='claim-text'>\"{html_lib.escape(claim)}\"</div>"
+            f"<div class='claim-text'>\"{html_lib.escape(result['claim'])}\"</div>"
             f"<div class='claim-exp'>{html_lib.escape(result.get('explanation',''))}</div>"
             f"{correct_html}</div>"
         )
         all_cards_html.append(card_html)
 
-        with claims_container:
-            st.markdown("".join(all_cards_html), unsafe_allow_html=True)
-
-        progress_bar.progress((i + 1) / len(claims))
-        time.sleep(1)
-
-    status_text.empty()
+    with claims_container:
+        st.markdown("".join(all_cards_html), unsafe_allow_html=True)
 
     # Step 4 — Final Summary
     elapsed  = time.time() - start_time
